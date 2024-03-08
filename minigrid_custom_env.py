@@ -168,42 +168,10 @@ class CustomEnvFromFile(MiniGridEnv):
         constructor = obj_map.get(char, None)
         return constructor() if constructor else None
 
-    def create_minigrid_image(self, cell_size=100):
-        # Define the mapping from characters to colors
-        color_map = {
-            'W': 'gray',  # Wall
-            'K': 'yellow',  # Key
-            'G': 'green'  # Goal
-        }
-        with open(self.txt_file_path, 'r') as file:
-            sections = file.read().split('\n\n')
-            env_string = sections[0].split('\n')
-        # Calculate the width of the image
-        height = cell_size * len(env_string)
-        width = cell_size * max(len(line) for line in env_string)
-
-        # Create a new image with a white background
-        img = Image.new('RGB', (width, height), 'white')
-        draw = ImageDraw.Draw(img)
-
-        # Draw each cell
-        for i, char in enumerate(env_string):
-            color = color_map.get(char, 'white')  # Default to white if the character is not found
-            # Determine the boundaries of the cell
-            left = i * cell_size
-            top = 0
-            right = left + cell_size
-            bottom = top + cell_size
-            # Draw the cell
-            draw.rectangle((left, top, right, bottom), fill=color)
-            img.show()
-
 if __name__ == "__main__":
     # Example usage of the CustomEnvFromFile class
     path = Paths()
     env = CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
                             render_mode="human")
-    CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
-                      render_mode="human").create_minigrid_image()
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
