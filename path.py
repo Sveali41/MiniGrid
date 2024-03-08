@@ -1,0 +1,4 @@
+import os
+class Paths:
+    ROOT = os.path.dirname(__file__)
+    LEVEL_FILE = os.path.join(ROOT, "level/simple_test_corridor_long.txt")
