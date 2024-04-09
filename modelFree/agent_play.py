@@ -88,7 +88,7 @@ policy_kwargs = dict(
 callback = RewardCallback()
 model = PPO('MlpPolicy', env, policy_kwargs=policy_kwargs, verbose=1)
 model.learn(total_timesteps=100000, callback=callback)
-# save the experiment data into csv file
+# save the experiment_MF data into csv file
 path = Paths()
 df = pd.DataFrame(index=range(100000))
 
