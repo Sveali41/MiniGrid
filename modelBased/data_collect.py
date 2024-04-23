@@ -8,7 +8,8 @@ import json
 path = Paths()
 env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key "
                                                                                       "and open the "
-                                                                                      "door.", render_mode="human"))
+                                                                                      "door.",
+                                        max_steps=2000, render_mode="human"))
 # time_step
 time_step = 10000
 obs, _ = env.reset()

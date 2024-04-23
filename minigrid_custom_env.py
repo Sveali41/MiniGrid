@@ -14,7 +14,7 @@ ACTION_NAMES = {
     2: 'Move Forward',
     3: 'Pick Up',
     4: 'Drop',
-    # 6: 'Done'
+    5: 'Toggle'
 }
 
 

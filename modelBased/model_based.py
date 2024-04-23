@@ -9,11 +9,13 @@ from path import *
 import os
 import json
 import numpy as np
-import wandb
 import torch.distributions as td
 
-wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
-wandb.init(project='MiniGrid', entity='svea41')
+use_wandb = False
+if use_wandb:
+    import wandb
+    wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
+    wandb.init(project='MiniGrid', entity='svea41')
 
 
 class SimpleNN(nn.Module):
@@ -21,7 +23,7 @@ class SimpleNN(nn.Module):
         super(SimpleNN, self).__init__()
         # Calculate the total size of the flattened
 
-        self.total_input_size = torch.prod(torch.tensor(obs_shape)) + action_shape
+        self.total_input_size = obs_shape + action_shape
         # Define the first dense layer to process the combined input
         self.shared_layers = nn.Sequential(
             nn.Linear(self.total_input_size, hidden_size),
@@ -42,9 +44,9 @@ class SimpleNN(nn.Module):
         reward_out = torch.sigmoid(self.reward_head(out))
         done_out = self.done_head(out)
 
-        # done_out = td.independent.Independent(
-        #     td.Bernoulli(logits=done_out), len(self._output_shape)
-        # )
+        done_out = td.independent.Independent(
+            td.Bernoulli(logits=done_out), 1
+        )
 
         return obs_out, reward_out, done_out
 
@@ -77,6 +79,9 @@ class CustomDataset(Dataset):
 
 def training(loader, num_epochs, net, optimizer):
     net.to(device)
+    # Compute loss
+    loss_function = nn.MSELoss()
+    loss_function_done = nn.MSELoss() # nn.BCEWithLogitsLoss()
     for epoch in range(num_epochs):  # num_epochs is the number of epochs to train for
         loop = tqdm(loader, leave=True)
         for observations, actions, next_observations, reward, terminated in loop:  # Assume data_loader is defined
@@ -100,17 +105,13 @@ def training(loader, num_epochs, net, optimizer):
             next_observations[:, :, :, 1] = norm(next_observations[:, :, :, 1], 5)
             next_observations[:, :, :, 2] = norm(next_observations[:, :, :, 2], 2)
             next_observations = next_observations.view(next_observations.size(0), -1)
-            # Compute loss
-            loss_function = nn.MSELoss()
-            loss_function_done = nn.BCEWithLogitsLoss()
             predicted_next_observations = predicted_next_observations.float()
             reward = reward.float()
             next_observations = next_observations.float()
             loss_obs = loss_function(predicted_next_observations, next_observations)
-            loss_reward = loss_function(predicted_reward, reward)
-            done = torch.tensor(done, dtype=torch.float32)
+            loss_reward = loss_function(predicted_reward.squeeze(), reward)
             terminated = torch.tensor(terminated, dtype=torch.float32).unsqueeze(1)
-            loss_done = loss_function_done(done, terminated)
+            loss_done = -torch.mean(done.log_prob(terminated))
 
             loss_total = loss_obs + loss_reward + loss_done
             # Zero gradients, perform a backward pass, and update the weights.
@@ -122,9 +123,10 @@ def training(loader, num_epochs, net, optimizer):
             loop.set_description(f"Epoch [{epoch + 1}/{num_epochs}]")
             loop.set_postfix(loss=loss_total.item(), loss_obs=loss_obs.item(), loss_reward=loss_reward.item(),
                              loss_done=loss_done.item())
-            wandb.log({"epoch": epoch, "loss": loss_total.item(), 'loss_obs': loss_obs.item(),
-                       'loss_reward': loss_reward.item(),
-                       'loss_done': loss_done.item()})
+            if use_wandb:
+                wandb.log({"epoch": epoch, "loss": loss_total.item(), 'loss_obs': loss_obs.item(),
+                        'loss_reward': loss_reward.item(),
+                        'loss_done': loss_done.item()})
 
 
 def load_data(file_path, batch_size):
@@ -181,9 +183,10 @@ if __name__ == "__main__":
     # Create the dataloader
     data_loader = load_data(data_save, 32)
     training(data_loader, 10000, model, model_optimizer)
-    wandb.finish()
+    if use_wandb:
+        wandb.finish()
     torch.save(model.state_dict(), 'env_model.pth')
-    # test the model
-    test_path = os.path.join(path.MODEL_BASED_DATA, 'env_data_test.json')
-    test_loader = load_data(test_path, 32)
-    test_model(model, test_loader)
+    # # test the model
+    # test_path = os.path.join(path.MODEL_BASED_DATA, 'env_data_test.json')
+    # test_loader = load_data(test_path, 32)
+    # test_model(model, test_loader)
