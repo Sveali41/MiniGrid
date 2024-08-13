@@ -1,0 +1,6 @@
+env:
+  env_name: MiniGrid-Empty-8x8-v0
+  visualize: false
+collect:
+  episodes: 100
+  data_train: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full.npz

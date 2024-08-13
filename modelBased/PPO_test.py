@@ -64,6 +64,7 @@ def test(env, path):
             action = ppo_agent.select_action(state)
             state, reward, done, _, _ = env.step(action)
             state = preprocess_observation(state['image']).to(device)
+            # state = torch.from_numpy(state['image'].flatten()).float().to(device)
             ep_reward += reward
 
             if render:
