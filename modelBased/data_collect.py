@@ -1,40 +1,69 @@
+import sys
+sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from minigrid_custom_env import *
-from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper, ImgObsWrapper
+from minigrid.wrappers import FullyObsWrapper,  ImgObsWrapper
 from path import *
 import pandas as pd
 import json
+import hydra
+from modelBased.common.utils import PROJECT_ROOT
+from omegaconf import DictConfig, OmegaConf
+import time
+from tqdm import tqdm
 
-# collect the data buffer
-path = Paths()
-env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key "
+def run_env(env, cfg: DictConfig):
+    obs_list, act_list, rew_list, done_list = [], [], [], []
+    episodes = 0
+    env.reset()
+
+    # Use tqdm to provide a progress bar
+    with tqdm(total=cfg.collect.episodes, desc="Collecting Episodes") as pbar:
+        while episodes < cfg.collect.episodes:
+            act = env.action_space.sample()  # Restrict the number of actions to 2
+            obs, reward, done, _, _ = env.step(act)
+            act_list.append([act])
+            obs_list.append([obs])
+            rew_list.append([reward])
+            done_list.append([done])
+
+            if cfg.env.visualize:  # Set to false to hide the GUI
+                env.render()
+                time.sleep(0.1)
+
+            if done:
+                episodes += 1
+                pbar.update(1)  # Update the progress bar
+
+                if episodes % 100 == 0:
+                    print("Episode", episodes)
+                env.reset()
+
+    obs_np = np.concatenate(obs_list)
+    act_np = np.concatenate(act_list)
+    rew_np = np.concatenate(rew_list)
+    done_np = np.concatenate(done_list)
+
+    print(obs_np.shape)
+    print(act_np.shape)
+    print(rew_np.shape)
+    print(done_np.shape)
+    print("Num episodes started: ", episodes)
+
+    return obs_np, act_np, rew_np, done_np
+
+def save_experiments(cfg: DictConfig, obs, act, rew, done):
+    np.savez_compressed(cfg.collect.data_train, a=obs, b=act, c=rew, d=done)
+
+@hydra.main(version_base=None, config_path = PROJECT_ROOT / "conf/env", config_name="config")
+def main(cfg: DictConfig):
+    path = Paths()
+    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key "
                                                                                       "and open the "
                                                                                       "door.",
                                         max_steps=2000, render_mode="human"))
-# time_step
-time_step = 10000
-obs, _ = env.reset()
-data_buffer = dict()
-data_buffer['obs'] = list()
-data_buffer['obs'].append(obs['image'].tolist())
-data_buffer['next_obs'] = list()
-data_buffer['reward'] = list()
-data_buffer['action'] = list()
-data_buffer['terminated'] = list()
+    env = ImgObsWrapper(env)
+    obs, act,rew, done = run_env(env, cfg)
+    save_experiments(cfg,obs,act,rew, done)
 
-for i in range(time_step):
-    action = env.action_space.sample()
-    data_buffer['action'].append(int(action))
-    next_obs, reward, terminated, truncated, info = env.step(action)
-    data_buffer['next_obs'].append(next_obs['image'].tolist())
-    data_buffer['reward'].append(float(reward))
-    data_buffer['terminated'].append(terminated)
-    obs = next_obs
-    data_buffer['obs'].append(obs['image'].tolist())
-    if terminated or truncated:
-        env.reset()
-
-# Save the DataFrame to a CSV file
-data_buffer['obs'] = data_buffer['obs'][:-1]
-data_save = os.path.join(path.MODEL_BASED_DATA, 'env_data.json')
-with open(data_save, 'w') as json_file:
-    json.dump(data_buffer, json_file, indent=4)
+if __name__ == "__main__": 
+    main()

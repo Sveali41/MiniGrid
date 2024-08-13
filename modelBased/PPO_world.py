@@ -8,7 +8,8 @@ import torch.distributions as td
 from PPO import PPO
 import os
 from datetime import datetime
-
+from model_based import SimpleNN, get_destination
+from test import denorm_and_round, norm
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -19,40 +20,6 @@ if torch.cuda.is_available():
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
     print("Device set to : cpu")
-
-class SimpleNN(nn.Module):
-    def __init__(self, obs_shape, next_obs_shape, action_shape, hidden_size):
-        super(SimpleNN, self).__init__()
-        # Calculate the total size of the flattened
-
-        self.total_input_size = obs_shape + action_shape
-        # Define the first dense layer to process the combined input
-        self.shared_layers = nn.Sequential(
-            nn.Linear(self.total_input_size, hidden_size),
-            nn.ReLU()
-        ).to(device)
-        self.state_head = nn.Sequential(
-            nn.Linear(hidden_size, next_obs_shape),
-            nn.ReLU()
-        ).to(device)
-        self.reward_head = nn.Linear(hidden_size, 1).to(device)
-        self.done_head = nn.Linear(hidden_size, 1).to(device)
-
-    def forward(self, input_obs, input_action):
-        input_obs = input_obs.to(device)
-        input_action = input_action.to(device)
-        combined_input = torch.cat((input_obs, input_action), dim=-1)
-        combined_input = combined_input.float().to(device)
-        out = self.shared_layers(combined_input)
-        obs_out = self.state_head(out)
-        reward_out = torch.sigmoid(self.reward_head(out))
-        done_out = self.done_head(out)
-
-        done_out = td.independent.Independent(
-            td.Bernoulli(logits=done_out), 1
-        )
-
-        return obs_out, reward_out, done_out
 
 
 def preprocess_observation(obs):
@@ -71,7 +38,7 @@ def training_agent(env, model, path):
 
     lr_actor = 0.0003  # learning rate for actor
     lr_critic = 0.001  # learning rate for critic
-    checkpoint_path = os.path.join(path.TRAINED_MODEL, 'world_model.pth')
+    checkpoint_path = os.path.join(path.TRAINED_MODEL, 'env_model.pth')
     time_step = 0
     max_training_timesteps = int(3e5)
     update_timestep = max_ep_len * 4  # update policy every n timesteps
@@ -96,18 +63,23 @@ def training_agent(env, model, path):
                     action_std)
     # training loop
     while time_step <= max_training_timesteps:
-
         state = env.reset()
         current_ep_reward = 0
-        state = preprocess_observation(state[0]['image']).to(device)
-
+        state = preprocess_observation(state[0]['image']).to(device).unsqueeze(0)
+        action = ppo_agent.select_action(state)
         for t in range(1, max_ep_len + 1):
-
             # select action with policy
-            action = ppo_agent.select_action(state)
-            state, reward, done = model(state, torch.tensor(action).to(device).unsqueeze(0))
-            done = done.sample()
-            done = bool(done)
+            if t > 1:
+                action = ppo_agent.select_action(state_denorm.view(state_denorm.size(0), -1))
+            state = model(state, torch.tensor(action).to(device).unsqueeze(0).unsqueeze(0))
+            state = state.to(dtype=torch.float32)
+            # denorm the state
+            state_denorm = denorm_and_round(state.reshape(-1, 6, 3, 3), (10, 5, 2))
+
+            # obtain reward from the state representation & done
+            done, reward = get_destination(state_denorm, t, max_ep_len, device)
+            state = norm(state_denorm, (10, 5, 2)).view(state_denorm.size(0), -1)
+
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)
@@ -157,14 +129,14 @@ def training_agent(env, model, path):
 
 
 if __name__ == "__main__":
-    use_wandb = True
+    use_wandb = False
     if use_wandb:
         import wandb
 
         wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
         wandb.init(project='world_test', entity='svea41')
     # test the model
-    loaded_model = SimpleNN(54, 54, 1, 50)
+    loaded_model = SimpleNN(54, 54, 1, 50).to(device)
     start_time = datetime.now().replace(microsecond=0)
     path = Paths()
     env_0 = FullyObsWrapper(

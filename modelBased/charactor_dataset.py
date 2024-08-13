@@ -64,29 +64,29 @@ def save_json(file_name, env_list):
     with open(file_name, 'w') as json_file:
         json.dump(env_list, json_file)
 
-
-# Example usage
-width, height = 10, 10
-obj_map, color_map = generate_maps(width, height, num_keys=1, num_doors=1)
-map_str = format_and_concatenate_maps(obj_map, color_map)
-# visualize the map
-path = Paths()
-name_string = 'test.txt'
-file_save = os.path.join(path.CHARACTOR_DATA, name_string)
-save_map_to_file(map_str, file_save)
-env = CustomEnvFromFile(txt_file_path=file_save, custom_mission="Find the key and open the door.",
-                        render_mode="human")
-env.reset()
-manual_control = ManualControl(env)  # Allows manual control for testing and visualization
-# manual_control.start()
-# create the dataset for generator
-env_list = list()
-
-for i in range(200):
+if __name__ == "__main__":
+    # Example usage
     width, height = 10, 10
     obj_map, color_map = generate_maps(width, height, num_keys=1, num_doors=1)
     map_str = format_and_concatenate_maps(obj_map, color_map)
-    env_list.append(map_str)
-name_string = 'training_data.json'
-file_save = os.path.join(path.CHARACTOR_DATA, name_string)
-save_json(file_save, env_list)
+    # visualize the map
+    path = Paths()
+    name_string = 'test.txt'
+    file_save = os.path.join(path.CHARACTOR_DATA, name_string)
+    save_map_to_file(map_str, file_save)
+    env = CustomEnvFromFile(txt_file_path=file_save, custom_mission="Find the key and open the door.",
+                        render_mode="human")
+    env.reset()
+    manual_control = ManualControl(env)  # Allows manual control for testing and visualization
+    # manual_control.start()
+    # create the dataset for generator
+    env_list = list()
+
+    for i in range(200):
+        width, height = 10, 10
+        obj_map, color_map = generate_maps(width, height, num_keys=1, num_doors=1)
+        map_str = format_and_concatenate_maps(obj_map, color_map)
+        env_list.append(map_str)
+        name_string = 'training_data.json'
+        file_save = os.path.join(path.CHARACTOR_DATA, name_string)
+        save_json(file_save, env_list)
