@@ -179,5 +179,5 @@ def get_destination(obs, episode, maxstep, device):
 
 
 if __name__ == "__main__":
-    # validate()
-    train()
+    validate()
+    # train()
