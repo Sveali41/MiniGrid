@@ -26,8 +26,8 @@ world_model:
   obs_size: 54 # height * width * channels = 6 * 3 * 3
   lr: 1e-3
   wd: 1e-5
-  pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
-  # pth_folder: ${oc.env:PTH_FOLDER}/wm-epoch=89-avg_val_loss_wm=0.0001.ckpt 
+  # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
+  pth_folder: ${oc.env:PTH_FOLDER}/wm-epoch=89-avg_val_loss_wm=0.0001.ckpt 
   obs_norm_values: [10, 5, 3]
   action_norm_values: 6
   
