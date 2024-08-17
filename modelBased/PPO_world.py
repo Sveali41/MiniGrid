@@ -8,7 +8,7 @@ import torch.distributions as td
 from PPO import PPO
 import os
 from datetime import datetime
-from model_based import SimpleNN, get_destination
+from modelBased.World_model_training import SimpleNN, get_destination
 from test import denorm_and_round, norm
 
 # set device to cpu or cuda

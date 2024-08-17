@@ -1,0 +1,38 @@
+# vae:
+#   batch_size: 64
+#   n_cpu: 8
+#   img_channels: 3
+#   latent_size: 64
+#   img_size: 64
+#   lr: 1e-3
+#   wd: 1e-5
+#   log_images: 24
+#   data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full.npz
+#   pth_folder: ${oc.env:PTH_FOLDER}/vae.ckpt
+
+  
+#   seq_len: 1 # sequence length for each dataset item
+#   beta: 0.01 # to balance mse and KLD
+#   n_epochs: 90 # number of training epochs
+
+
+world_model:
+  action_size: 1
+  batch_size: 64
+  n_cpu: 8
+  hidden_size: 256 #hidden size
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full.npz
+  n_epochs: 100 # number of training epochs
+  obs_size: 54 # height * width * channels = 6 * 3 * 3
+  lr: 1e-3
+  wd: 1e-5
+  pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
+  # pth_folder: ${oc.env:PTH_FOLDER}/wm-epoch=89-avg_val_loss_wm=0.0001.ckpt 
+  obs_norm_values: [10, 5, 3]
+  action_norm_values: 6
+  
+test_env:
+  visualize: False
+  time_limit: 256 #max number of steps for each rollout 600
+  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 #MiniGrid-Empty-5x5-v0 #MiniGrid-Empty-8x8-v0 #MiniGrid-Empty-Random-6x6-v0 
+  n_rollouts: 1000
