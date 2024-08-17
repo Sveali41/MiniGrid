@@ -39,6 +39,7 @@ def training_agent(env, model, path):
     lr_actor = 0.0003  # learning rate for actor
     lr_critic = 0.001  # learning rate for critic
     checkpoint_path = os.path.join(path.TRAINED_MODEL, 'env_model.pth')
+    checkpoint_path = os.path.join(path.TRAINED_MODEL, 'env_model.pth')
     time_step = 0
     max_training_timesteps = int(3e5)
     update_timestep = max_ep_len * 4  # update policy every n timesteps
@@ -67,8 +68,21 @@ def training_agent(env, model, path):
         current_ep_reward = 0
         state = preprocess_observation(state[0]['image']).to(device).unsqueeze(0)
         action = ppo_agent.select_action(state)
+        state = preprocess_observation(state[0]['image']).to(device).unsqueeze(0)
+        action = ppo_agent.select_action(state)
         for t in range(1, max_ep_len + 1):
             # select action with policy
+            if t > 1:
+                action = ppo_agent.select_action(state_denorm.view(state_denorm.size(0), -1))
+            state = model(state, torch.tensor(action).to(device).unsqueeze(0).unsqueeze(0))
+            state = state.to(dtype=torch.float32)
+            # denorm the state
+            state_denorm = denorm_and_round(state.reshape(-1, 6, 3, 3), (10, 5, 2))
+
+            # obtain reward from the state representation & done
+            done, reward = get_destination(state_denorm, t, max_ep_len, device)
+            state = norm(state_denorm, (10, 5, 2)).view(state_denorm.size(0), -1)
+
             if t > 1:
                 action = ppo_agent.select_action(state_denorm.view(state_denorm.size(0), -1))
             state = model(state, torch.tensor(action).to(device).unsqueeze(0).unsqueeze(0))
@@ -130,12 +144,14 @@ def training_agent(env, model, path):
 
 if __name__ == "__main__":
     use_wandb = False
+    use_wandb = False
     if use_wandb:
         import wandb
 
         wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
         wandb.init(project='world_test', entity='svea41')
     # test the model
+    loaded_model = SimpleNN(54, 54, 1, 50).to(device)
     loaded_model = SimpleNN(54, 54, 1, 50).to(device)
     start_time = datetime.now().replace(microsecond=0)
     path = Paths()
