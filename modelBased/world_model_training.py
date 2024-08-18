@@ -83,18 +83,24 @@ def validate(cfg: DictConfig):
 
         # Predict using the model
         obs_pred = model(obs_batch, act_batch)
-
-        # Denormalize the prediction and round it
-        denorm_pred = denormalize(obs_pred[i])  # Use index i to get the current observation
-        obs_pred_rounded = torch.round(denorm_pred)
+        # map the observation to the nearest valid value
+        obs_pred_map = []
+        for k in range(batch_size):
+            mapped_obs = map_obs_to_nearest_value(cfg, obs_pred[k])
+            obs_pred_map.append(mapped_obs)
+        obs_pred_map = torch.stack(obs_pred_map)
 
         # Denormalize the actual observation and round it
-        denorm_obs = denormalize(obs_batch[i])  # Use index i to get the current observation
-        obs_real_rounded = torch.round(denorm_obs)
+        obs_real_map = []
+        for h in range(batch_size):
+            denorm_obs = denormalize(obs_batch[h])  # Use index i to get the current observation
+            obs_real = torch.round(denorm_obs)
+            obs_real_map.append(obs_real)
+        obs_real_map = torch.stack(obs_real_map)
 
         # Print the difference between the real and predicted observation
         print(f"Test {i+1}: Difference between real and predicted observation")
-        print(obs_real_rounded - obs_pred_rounded)
+        print(obs_real_map - obs_pred_map)
     pass
 
 def denormalize(x):
@@ -114,69 +120,56 @@ def denormalize(x):
             x[:, :, i] = x[:, :, i] * max_value
     return x
 
+def normalize(x):
+    """Normalize the obs data and flatten it."""
+    if not np.issubdtype(x.dtype, np.floating):
+        x = x.astype(np.float32) 
+    obs_norm_values = [10, 5, 3] 
+    # Ensure that the norm_values is not None and has the correct length
+    if obs_norm_values is None or len(obs_norm_values) != x.shape[-1]:
+        raise ValueError("Normalization values must be provided and must match the number of channels in the data.")
+    # Normalize each channel using the provided norm values
+    for i in range(x.shape[-1]):  # Loop over the last dimension (channels)
+        max_value = obs_norm_values[i]
+        if max_value != 0:  # Avoid division by zero
+            x[:, :, i] = x[:, :, i] / max_value  
+    # Flatten the data
+    x = x.reshape(x.shape[0], -1)
+    return x
 
-def get_destination(obs, episode, maxstep, device):
+
+def map_to_nearest_value(tensor, valid_values):
+    valid_values = torch.tensor(valid_values, dtype=torch.float32)
+    tensor = tensor.unsqueeze(-1)  # Add a dimension to compare with valid values
+    differences = torch.abs(tensor - valid_values)  # Calculate differences
+    indices = torch.argmin(differences, dim=-1)  # Get index of nearest value
+    nearest_values = valid_values[indices]  # Get nearest values using indices
+    return nearest_values
+
+def map_obs_to_nearest_value(cfg, obs):
     """
-    1.object:("unseen": 0,  "empty": 1, "wall": 2, "door": 4, "key": 5, "goal": 8, "agent": 10)
-    "unseen": 0,
-    "empty": 1,
-    "wall": 2,
-    "floor": 3,
-    "door": 4,
-    "key": 5,
-    "ball": 6,
-    "box": 7,
-    "goal": 8,
-    "lava": 9,
-    "agent": 10
-
-    2. color:
-    "red": 0, "green": 1, "blue": 2, "purple": 3, "yellow": 4, "grey": 5
-
-    3. status
-    State, 0: open, 1: closed, 2: locked
-
-    check from wrappers.py full_obs-->encode
+    Maps each value in the tensor to the nearest valid value from the valid_values list.
+    
+    Args:
+        tensor (torch.Tensor): Input tensor with shape (6, 3, 3).
+        valid_values (list): From config read list of valid values to map to.
+        
+    Returns:
+        torch.Tensor: 1.Denorm the tensor 2.Each element is replaced 
+                      by the nearest valid value.
     """
-    destination = torch.tensor(np.array(
-        [[[2, 5, 0],
-          [2, 5, 0],
-          [2, 5, 0]],
-
-         [[2, 5, 0],
-          [1, 0, 0],
-          [2, 5, 0]],
-
-         [[2, 5, 0],
-          [1, 0, 0],
-          [2, 5, 0]],
-
-         [[2, 5, 0],
-          [4, 0, 0],
-          [2, 5, 0]],
-
-         [[2, 5, 0],
-          [10, 0, 0],
-          [2, 5, 0]],
-
-         [[2, 5, 0],
-          [2, 5, 0],
-          [2, 5, 0]]])).unsqueeze(0).to(device).float()
-
-    # when next_obs = destination-> done = True, otherwise = False
-    if torch.isclose(destination, obs, rtol=1, atol=1).all():
-        if episode >= maxstep:
-            done = True
-            reward = 0
-        else:
-            reward = 1 - 0.9 * (episode / maxstep)
-            done = True
-    else:
-        done = False
-        reward = 0
-
-    return done, reward
-
+    # Denormalize the tensor
+    obs = denormalize(obs)
+    # load the valid values from the config
+    hparams = cfg
+    valid_values_obj = hparams.world_model.valid_values_obj
+    valid_values_color = hparams.world_model.valid_values_color
+    valid_values_state = hparams.world_model.valid_values_state
+    # Map each channel to the nearest valid value
+    obs[:, :, 0] = map_to_nearest_value(obs[:, :, 0], valid_values_obj)
+    obs[:, :, 1] = map_to_nearest_value(obs[:, :, 1], valid_values_color)
+    obs[:, :, 2] = map_to_nearest_value(obs[:, :, 2], valid_values_state)
+    return obs
 
 if __name__ == "__main__":
     validate()

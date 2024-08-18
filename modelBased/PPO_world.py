@@ -7,9 +7,12 @@ import numpy as np
 import torch.distributions as td
 from PPO import PPO
 import os
+import hydra
+from modelBased.common.utils import PROJECT_ROOT
 from datetime import datetime
-from modelBased.World_model_training import SimpleNN, get_destination
-from test import denorm_and_round, norm
+from modelBased.world_model import SimpleNN
+from modelBased.world_model_training import get_destination, denormalize, normalize
+from omegaconf import DictConfig, OmegaConf
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -21,45 +24,117 @@ if torch.cuda.is_available():
 else:
     print("Device set to : cpu")
 
+def get_destination(obs, episode, maxstep, device):
+    """
+    from the obs state, check if the agent has reached the destination
+    and return done and reward
 
-def preprocess_observation(obs):
-    obs = obs / np.array([10, 5, 2])
-    return torch.from_numpy(obs.flatten()).float().to(device)
+    1.object:("unseen": 0,  "empty": 1, "wall": 2, "door": 4, "key": 5, "goal": 8, "agent": 10)
+    "unseen": 0,
+    "empty": 1,
+    "wall": 2,
+    "floor": 3,
+    "door": 4,
+    "key": 5,
+    "ball": 6,
+    "box": 7,
+    "goal": 8,
+    "lava": 9,
+    "agent": 10
 
+    2. color:
+    "red": 0, "green": 1, "blue": 2, "purple": 3, "yellow": 4, "grey": 5
 
-def training_agent(env, model, path):
-    has_continuous_action_space = False
-    max_ep_len = 400  # max timesteps in one episode
-    action_std = 0.1  # set same std for action distribution which was used while saving
+    3. status
+    State, 0: open, 1: closed, 2: locked
+
+    check from wrappers.py full_obs-->encode
+    """
+    
+    destination = torch.tensor(np.array(
+        [[[2, 5, 0],
+          [2, 5, 0],
+          [2, 5, 0]],
+
+         [[2, 5, 0],
+          [1, 0, 0],
+          [2, 5, 0]],
+
+         [[2, 5, 0],
+          [1, 0, 0],
+          [2, 5, 0]],
+
+         [[2, 5, 0],
+          [4, 0, 0],
+          [2, 5, 0]],
+
+         [[2, 5, 0],
+          [10, 0, 0],
+          [2, 5, 0]],
+
+         [[2, 5, 0],
+          [2, 5, 0],
+          [2, 5, 0]]])).unsqueeze(0).to(device).float()
+
+    # when next_obs = destination-> done = True, otherwise = False
+    if torch.isclose(destination, obs, rtol=1, atol=1).all():
+        if episode >= maxstep:
+            done = True
+            reward = 0
+        else:
+            reward = 1 - 0.9 * (episode / maxstep)
+            done = True
+    else:
+        done = False
+        reward = 0
+
+    return done, reward
+
+@hydra.main(version_base=None, config_path=PROJECT_ROOT / "conf/model", config_name="config")
+def training_agent(cfg: DictConfig):
+    hparams = cfg
+    
+    # 1. world Model
+    model = SimpleNN(hparams=hparams.world_model).to(device)
+    checkpoint = torch.load(hparams.world_model.pth_folder)
+    model.load_state_dict(checkpoint['state_dict'])
+    
+    # 2. PPO
+    # hyperparameters
+    lr_actor = hparams.PPO.lr_actor
+    lr_critic = hparams.PPO.lr_critic
+    gamma = hparams.PPO.gamma
+    K_epochs = hparams.PPO.K_epochs
+    eps_clip = hparams.PPO.eps_clip
+    action_std = hparams.PPO.action_std
+    action_std_decay_rate = hparams.PPO.action_std_decay_rate
+    min_action_std = hparams.PPO.min_action_std
+    action_std_decay_freq = hparams.PPO.action_std_decay_freq
+    max_training_timesteps = hparams.PPO.max_training_timesteps
+    save_model_freq = hparams.PPO.save_model_freq
+    max_ep_len = hparams.PPO.max_ep_len
+    has_continuous_action_space = hparams.PPO.has_continuous_action_space
+    
+    # 3. real env
+    path = Paths()
+    env = FullyObsWrapper(
+        CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
+                          max_steps=2000,
+                          render_mode="rgb"))
+    
+    # 4. initialize training
     i_episode = 0
-    K_epochs = 80  # update policy for K epochs
-    eps_clip = 0.2  # clip parameter for PPO
-    gamma = 0.99  # discount factor
-
-    lr_actor = 0.0003  # learning rate for actor
-    lr_critic = 0.001  # learning rate for critic
-    checkpoint_path = os.path.join(path.TRAINED_MODEL, 'env_model.pth')
-    checkpoint_path = os.path.join(path.TRAINED_MODEL, 'env_model.pth')
-    time_step = 0
-    max_training_timesteps = int(3e5)
     update_timestep = max_ep_len * 4  # update policy every n timesteps
-    action_std_decay_freq = int(2.5e5)
-    action_std_decay_rate = 0.05
     print_freq = max_ep_len * 4
-    min_action_std = 0.1
-    save_model_freq = int(2e4)
     print_running_reward = 0
     print_running_episodes = 0
-
-    # state space dimension
-    state_dim = np.prod(env_0.observation_space['image'].shape)
-
+    
     # action space dimension
     if has_continuous_action_space:
         action_dim = env.action_space
     else:
         action_dim = env.action_space.n
-
+    state_dim = np.prod(env.observation_space['image'].shape)
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
     # training loop
@@ -144,7 +219,6 @@ def training_agent(env, model, path):
 
 if __name__ == "__main__":
     use_wandb = False
-    use_wandb = False
     if use_wandb:
         import wandb
 
@@ -153,12 +227,7 @@ if __name__ == "__main__":
     # test the model
     loaded_model = SimpleNN(54, 54, 1, 50).to(device)
     loaded_model = SimpleNN(54, 54, 1, 50).to(device)
-    start_time = datetime.now().replace(microsecond=0)
-    path = Paths()
-    env_0 = FullyObsWrapper(
-        CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
-                          max_steps=2000,
-                          render_mode="rgb"))
+
     # Please note that the default observation format is a partially observable view of the environment using a compact
     # and efficient encoding, with 3 input values per visible grid cell, 7x7x3 values total.
     loaded_model.load_state_dict(torch.load('env_model.pth'))
