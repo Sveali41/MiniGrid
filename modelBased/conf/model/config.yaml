@@ -46,11 +46,13 @@ PPO:
   lr_critic: 0.001  # learning rate for critic
   checkpoint_path: ${oc.env:PTH_FOLDER}/policy_model.ckpt
   time_step: 0
-  max_training_timesteps: 3e5
+  max_training_timesteps: 1.2e5
+  # max_training_timesteps: 3e5
   action_std_decay_freq: 2.5e5
   action_std_decay_rate: 0.05
   min_action_std: 0.1
   save_model_freq: 2e4
+  render: True
 
 test_env:
   visualize: False

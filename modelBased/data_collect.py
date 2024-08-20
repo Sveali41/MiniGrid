@@ -1,9 +1,6 @@
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
-import sys
-sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from minigrid_custom_env import *
-from minigrid.wrappers import FullyObsWrapper,  ImgObsWrapper
 from minigrid.wrappers import FullyObsWrapper,  ImgObsWrapper
 from path import *
 import pandas as pd

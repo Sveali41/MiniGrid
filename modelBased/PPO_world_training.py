@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from path import Paths
 from minigrid_custom_env import CustomEnvFromFile
 from minigrid.wrappers import FullyObsWrapper
@@ -11,7 +13,7 @@ import hydra
 from modelBased.common.utils import PROJECT_ROOT
 from datetime import datetime
 from modelBased.world_model import SimpleNN
-from modelBased.world_model_training import get_destination, denormalize, normalize
+from modelBased.world_model_training import normalize, map_obs_to_nearest_value
 from omegaconf import DictConfig, OmegaConf
 
 # set device to cpu or cuda
@@ -52,32 +54,34 @@ def get_destination(obs, episode, maxstep, device):
     """
     
     destination = torch.tensor(np.array(
-        [[[2, 5, 0],
-          [2, 5, 0],
-          [2, 5, 0]],
+        [[[ 2,  5,  0],
+        [ 2,  5,  0],
+        [ 2,  5,  0]],
 
-         [[2, 5, 0],
-          [1, 0, 0],
-          [2, 5, 0]],
+       [[ 2,  5,  0],
+        [ 1,  0,  0],
+        [ 2,  5,  0]],
 
-         [[2, 5, 0],
-          [1, 0, 0],
-          [2, 5, 0]],
+       [[ 2,  5,  0],
+        [ 1,  0,  0],
+        [ 2,  5,  0]],
 
-         [[2, 5, 0],
-          [4, 0, 0],
-          [2, 5, 0]],
+       [[ 2,  5,  0],
+        [10,  0,  0],
+        [ 2,  5,  0]],
 
-         [[2, 5, 0],
-          [10, 0, 0],
-          [2, 5, 0]],
+       [[ 2,  5,  0],
+        [ 8,  1,  0],
+        [ 2,  5,  0]],
 
-         [[2, 5, 0],
-          [2, 5, 0],
-          [2, 5, 0]]])).unsqueeze(0).to(device).float()
+       [[ 2,  5,  0],
+        [ 2,  5,  0],
+        [ 2,  5,  0]]])).to(device).float()
+    
+
 
     # when next_obs = destination-> done = True, otherwise = False
-    if torch.isclose(destination, obs, rtol=1, atol=1).all():
+    if torch.equal(destination, obs):
         if episode >= maxstep:
             done = True
             reward = 0
@@ -87,7 +91,6 @@ def get_destination(obs, episode, maxstep, device):
     else:
         done = False
         reward = 0
-
     return done, reward
 
 @hydra.main(version_base=None, config_path=PROJECT_ROOT / "conf/model", config_name="config")
@@ -95,12 +98,14 @@ def training_agent(cfg: DictConfig):
     hparams = cfg
     
     # 1. world Model
-    model = SimpleNN(hparams=hparams.world_model).to(device)
+    model = SimpleNN(hparams=hparams).to(device)
     checkpoint = torch.load(hparams.world_model.pth_folder)
     model.load_state_dict(checkpoint['state_dict'])
+    model.eval()
     
     # 2. PPO
     # hyperparameters
+    start_time = datetime.now().replace(microsecond=0)
     lr_actor = hparams.PPO.lr_actor
     lr_critic = hparams.PPO.lr_critic
     gamma = hparams.PPO.gamma
@@ -114,20 +119,22 @@ def training_agent(cfg: DictConfig):
     save_model_freq = hparams.PPO.save_model_freq
     max_ep_len = hparams.PPO.max_ep_len
     has_continuous_action_space = hparams.PPO.has_continuous_action_space
+    checkpoint_path = hparams.PPO.checkpoint_path
     
-    # 3. real env
+    # 3. Real env
     path = Paths()
     env = FullyObsWrapper(
         CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
                           max_steps=2000,
                           render_mode="rgb"))
     
-    # 4. initialize training
+    # 4. Initialize training
     i_episode = 0
     update_timestep = max_ep_len * 4  # update policy every n timesteps
     print_freq = max_ep_len * 4
     print_running_reward = 0
     print_running_episodes = 0
+    time_step = 0
     
     # action space dimension
     if has_continuous_action_space:
@@ -137,38 +144,25 @@ def training_agent(cfg: DictConfig):
     state_dim = np.prod(env.observation_space['image'].shape)
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
+    
     # training loop
     while time_step <= max_training_timesteps:
-        state = env.reset()
+        state = env.reset()[0]['image']
         current_ep_reward = 0
-        state = preprocess_observation(state[0]['image']).to(device).unsqueeze(0)
-        action = ppo_agent.select_action(state)
-        state = preprocess_observation(state[0]['image']).to(device).unsqueeze(0)
-        action = ppo_agent.select_action(state)
         for t in range(1, max_ep_len + 1):
-            # select action with policy
-            if t > 1:
-                action = ppo_agent.select_action(state_denorm.view(state_denorm.size(0), -1))
-            state = model(state, torch.tensor(action).to(device).unsqueeze(0).unsqueeze(0))
+            # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
+            if t==1:
+                state = normalize(state).to(device)
+            else:
+                state = state.squeeze()
+            action = ppo_agent.select_action(state)
+            state = model(state, torch.tensor(action/hparams.world_model.action_norm_values).to(device).unsqueeze(0))
             state = state.to(dtype=torch.float32)
             # denorm the state
-            state_denorm = denorm_and_round(state.reshape(-1, 6, 3, 3), (10, 5, 2))
+            state_denorm = map_obs_to_nearest_value(cfg, state)
 
             # obtain reward from the state representation & done
             done, reward = get_destination(state_denorm, t, max_ep_len, device)
-            state = norm(state_denorm, (10, 5, 2)).view(state_denorm.size(0), -1)
-
-            if t > 1:
-                action = ppo_agent.select_action(state_denorm.view(state_denorm.size(0), -1))
-            state = model(state, torch.tensor(action).to(device).unsqueeze(0).unsqueeze(0))
-            state = state.to(dtype=torch.float32)
-            # denorm the state
-            state_denorm = denorm_and_round(state.reshape(-1, 6, 3, 3), (10, 5, 2))
-
-            # obtain reward from the state representation & done
-            done, reward = get_destination(state_denorm, t, max_ep_len, device)
-            state = norm(state_denorm, (10, 5, 2)).view(state_denorm.size(0), -1)
-
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)
@@ -218,20 +212,14 @@ def training_agent(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    use_wandb = False
+    use_wandb = True
     if use_wandb:
         import wandb
 
         wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
-        wandb.init(project='world_test', entity='svea41')
-    # test the model
-    loaded_model = SimpleNN(54, 54, 1, 50).to(device)
-    loaded_model = SimpleNN(54, 54, 1, 50).to(device)
+        wandb.init(project='WM PPO', entity='svea41')
 
-    # Please note that the default observation format is a partially observable view of the environment using a compact
-    # and efficient encoding, with 3 input values per visible grid cell, 7x7x3 values total.
-    loaded_model.load_state_dict(torch.load('env_model.pth'))
+    training_agent()
 
-    training_agent(env_0, loaded_model, path)
     if use_wandb:
         wandb.finish()

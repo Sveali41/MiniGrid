@@ -2,13 +2,13 @@ import os
 import glob
 import time
 from datetime import datetime
-
+import sys
+sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 import numpy as np
-import gym
 from minigrid_custom_env import CustomEnvFromFile
 from minigrid.wrappers import FullyObsWrapper
 from path import Paths

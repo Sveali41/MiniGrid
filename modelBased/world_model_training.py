@@ -104,7 +104,9 @@ def validate(cfg: DictConfig):
     pass
 
 def denormalize(x):
-    """Denormalize the obs data from its flattened state."""
+    """Denormalize the obs data from its flattened state.
+        input: x: torch.tensor of shape (,54)
+    """
     obs_norm_values = [10, 5, 3] # Example normalization values for 3 channels
     # Reshape the data to its original shape before flattening
     x = x.reshape(6,3,3)
@@ -121,7 +123,9 @@ def denormalize(x):
     return x
 
 def normalize(x):
-    """Normalize the obs data and flatten it."""
+    """Normalize the obs data and flatten it.
+        input: x: np.array of shape (6,3,3)
+    """
     if not np.issubdtype(x.dtype, np.floating):
         x = x.astype(np.float32) 
     obs_norm_values = [10, 5, 3] 
@@ -134,12 +138,13 @@ def normalize(x):
         if max_value != 0:  # Avoid division by zero
             x[:, :, i] = x[:, :, i] / max_value  
     # Flatten the data
-    x = x.reshape(x.shape[0], -1)
+    x = x.reshape(-1)
+    x = torch.tensor(x)
     return x
 
 
 def map_to_nearest_value(tensor, valid_values):
-    valid_values = torch.tensor(valid_values, dtype=torch.float32)
+    valid_values = torch.tensor(valid_values, dtype=torch.float32).to(tensor.device)
     tensor = tensor.unsqueeze(-1)  # Add a dimension to compare with valid values
     differences = torch.abs(tensor - valid_values)  # Calculate differences
     indices = torch.argmin(differences, dim=-1)  # Get index of nearest value
@@ -151,7 +156,7 @@ def map_obs_to_nearest_value(cfg, obs):
     Maps each value in the tensor to the nearest valid value from the valid_values list.
     
     Args:
-        tensor (torch.Tensor): Input tensor with shape (6, 3, 3).
+        tensor (torch.Tensor): Input tensor with shape (,54).
         valid_values (list): From config read list of valid values to map to.
         
     Returns:
@@ -159,17 +164,17 @@ def map_obs_to_nearest_value(cfg, obs):
                       by the nearest valid value.
     """
     # Denormalize the tensor
-    obs = denormalize(obs)
+    obs_denorm = denormalize(obs.clone())
     # load the valid values from the config
     hparams = cfg
     valid_values_obj = hparams.world_model.valid_values_obj
     valid_values_color = hparams.world_model.valid_values_color
     valid_values_state = hparams.world_model.valid_values_state
     # Map each channel to the nearest valid value
-    obs[:, :, 0] = map_to_nearest_value(obs[:, :, 0], valid_values_obj)
-    obs[:, :, 1] = map_to_nearest_value(obs[:, :, 1], valid_values_color)
-    obs[:, :, 2] = map_to_nearest_value(obs[:, :, 2], valid_values_state)
-    return obs
+    obs_denorm[:, :, 0] = map_to_nearest_value(obs_denorm[:, :, 0], valid_values_obj)
+    obs_denorm[:, :, 1] = map_to_nearest_value(obs_denorm[:, :, 1], valid_values_color)
+    obs_denorm[:, :, 2] = map_to_nearest_value(obs_denorm[:, :, 2], valid_values_state)
+    return obs_denorm
 
 if __name__ == "__main__":
     validate()

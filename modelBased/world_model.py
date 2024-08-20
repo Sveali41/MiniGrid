@@ -52,8 +52,14 @@ class SimpleNN(pl.LightningModule):
 
 
     def forward(self, input_obs, input_action):
-        input_action = input_action.unsqueeze(1)
-        combined_input = torch.cat((input_obs, input_action), dim=1)
+        if input_obs.dim() == 1 and input_action.dim() == 1:
+            # Add a batch dimension to both inputs
+            input_obs = input_obs.unsqueeze(0)  # Shape becomes [1, 54]
+            input_action = input_action.unsqueeze(0)  # Shape becomes [1, 1]
+            combined_input = torch.cat((input_obs, input_action), dim=1)
+        else:
+            input_action = input_action.unsqueeze(1)
+            combined_input = torch.cat((input_obs, input_action), dim=1)
         out = self.shared_layers(combined_input)
         obs_out = self.state_head(out)
         # reward_out = torch.sigmoid(self.reward_head(out))
@@ -120,7 +126,4 @@ class SimpleNN(pl.LightningModule):
     def on_save_checkpoint(self, checkpoint):
         # Example checkpoint customization: removing specific keys if needed
         t = checkpoint['state_dict']
-        # You can filter out certain keys if required, for example:
-        # checkpoint['state_dict'] = {key: t[key] for key in t if not key.startswith('unwanted_prefix')}
-        # But since there's no VAE or specific filtering needed, this method can be left simple.
         pass  # No specific filtering needed for a simple NN
