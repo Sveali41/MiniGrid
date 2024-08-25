@@ -7,7 +7,7 @@ from minigrid.manual_control import ManualControl
 import json
 
 
-def generate_maps(w, h, num_keys=1, num_doors=1):
+def generate_empty_maps(w, h, num_keys=1, num_doors=1):
     # amount of wall is random
     num_walls = random.randint(5, w + 8)
     # Initialize object and color grids

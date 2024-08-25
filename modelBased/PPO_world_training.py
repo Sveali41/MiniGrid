@@ -93,7 +93,7 @@ def get_destination(obs, episode, maxstep, device):
         reward = 0
     return done, reward
 
-@hydra.main(version_base=None, config_path=PROJECT_ROOT / "conf/model", config_name="config")
+@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/model"), config_name="config")
 def training_agent(cfg: DictConfig):
     hparams = cfg
     

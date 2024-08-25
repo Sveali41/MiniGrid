@@ -1,37 +1,9 @@
 import torch
 from torch import nn
-from generator_vae import RandomCharacterDataset, DataLoader
 import os
 from path import Paths
-
-
-class Generator(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(Generator, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, output_dim),
-            nn.LogSoftmax(dim=-1)  # Prepare for categorical sampling
-        )
-
-    def forward(self, x):
-        return self.fc(x)
-
-
-class Discriminator(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(Discriminator, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.LeakyReLU(0.2),
-            nn.Linear(128, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        return self.fc(x)
-
+from generator_vae import RandomCharacterDataset, DataLoader
+from generator.basic_gen import Generator, Discriminator
 
 def train_gan(generator, discriminator, data_loader, device, num_epochs, latent_dim=500):
     criterion = nn.BCELoss()

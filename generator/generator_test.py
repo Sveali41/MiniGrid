@@ -6,7 +6,7 @@ from generator_vae import VAE, decode_maps
 import numpy as np
 from minigrid_custom_env import CustomEnvFromFile
 from minigrid.manual_control import ManualControl
-from generator_gan import Generator
+from generator.basic_gen import Generator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")

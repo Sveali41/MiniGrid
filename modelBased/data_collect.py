@@ -56,7 +56,7 @@ def run_env(env, cfg: DictConfig):
 def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done):
     np.savez_compressed(cfg.collect.data_train, a=obs, b=obs_next, c=act, d=rew, e=done)
 
-@hydra.main(version_base=None, config_path = PROJECT_ROOT / "conf/env", config_name="config")
+@hydra.main(version_base=None, config_path = str(PROJECT_ROOT / "conf/env"), config_name="config")
 def main(cfg: DictConfig):
     path = Paths()
     env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key "

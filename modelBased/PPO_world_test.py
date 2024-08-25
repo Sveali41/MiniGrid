@@ -26,7 +26,7 @@ if torch.cuda.is_available():
 else:
     print("Device set to : cpu")
 #################################### Testing ###################################
-@hydra.main(version_base=None, config_path=PROJECT_ROOT / "conf/model", config_name="config")
+@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
 def test(cfg: DictConfig):
     print("============================================================================================")
     ################## hyperparameters ##################

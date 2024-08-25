@@ -22,7 +22,7 @@ if use_wandb:
     import wandb
     wandb.require("core")
 
-@hydra.main(version_base=None, config_path=PROJECT_ROOT / "conf/model", config_name="config")
+@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
 def train(cfg: DictConfig):
     hparams = cfg
     # data
@@ -59,7 +59,7 @@ def train(cfg: DictConfig):
     wandb.save(str(model_pth))
 
 
-@hydra.main(version_base=None, config_path=PROJECT_ROOT / "conf/model", config_name="config")
+@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
 def validate(cfg: DictConfig):
     hparams = cfg
     model = SimpleNN(hparams=hparams)

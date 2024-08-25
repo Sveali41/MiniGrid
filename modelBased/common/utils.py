@@ -5,7 +5,6 @@ from typing import Sequence
 import dotenv
 from matplotlib import pyplot as plt
 from omegaconf import DictConfig, OmegaConf
-import hydra
 
 def get_env(env_name: str, default: Optional[str] = None) -> str:
     """
@@ -44,3 +43,4 @@ def load_envs(env_file: Optional[str] = '.env') -> None:
 load_envs()
 
 PROJECT_ROOT : Path = Path(get_env("PROJECT_ROOT"))
+GENERATOR_PATH : Path = Path(get_env("GENERATOR_PATH"))
