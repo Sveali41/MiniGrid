@@ -1,65 +1,62 @@
-# Simple DCGAN
-import torch
 import torch.nn as nn
-from functools import reduce
-from operator import mul
+import pytorch_lightning as pl
 
-import pdb
 
 class Generator(nn.Module):
-    def __init__(self, mapping, shapes, z_shape, dropout):
+    def __init__(self, z_shape, output_channels, grid_size=8):
         super(Generator, self).__init__()
-        self.z_size = z_shape[0]
-        layers = len(mapping)
+        self.z_size = z_shape
+        self.output_channels = output_channels
+        self.grid_size = grid_size
 
-        self.active = nn.ReLU(True)
+        # Calculate the size of intermediate layers based on grid_size
+        intermediate_size = grid_size // 4  # This will be 2 if grid_size is 8
 
-        #add conv layers between
         self.main = nn.Sequential(
-            # input is Z, going into a convolution
-            nn.ConvTranspose2d(self.z_size, 256, (3, 4), 1, 0, bias=False),
+            nn.ConvTranspose2d(self.z_size, 256, kernel_size=(intermediate_size, intermediate_size), stride=1, padding=0, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(True),
-            # state size. (ngf*8) x 3 x 4
-            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
-            #nn.BatchNorm2d(128),
+
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128),
             nn.ReLU(True),
-            nn.Dropout(dropout),
-            # state size. (ngf*4) x 6 x 8
-            nn.ConvTranspose2d(128, layers, 4, 2, 1, bias=False),
-            # state size. (ngf*2) x 12 x 16
+
+            nn.ConvTranspose2d(128, self.output_channels, kernel_size=4, stride=2, padding=1, bias=False)  # Output: (batch_size, output_channels, 8, 8)
         )
 
-        self.output = nn.Softmax2d()
+        self.output = nn.ReLU()  # Use ReLU to ensure positive outputs
 
     def forward(self, z):
+        # Reshape the input noise vector z to match the starting dimensions
         x = z.reshape(-1, self.z_size, 1, 1)
         x = self.main(x)
         x = self.output(x)
         return x
 
+
 class Discriminator(nn.Module):
-    def __init__(self, input_channels, dropout):
+    def __init__(self, input_channels=2, grid_size=8, dropout=0.3):
         super(Discriminator, self).__init__()
-        
-        # Number of filters in the first layer
-        ndf = 64
+        self.grid_size = grid_size
+        ndf = 64  # Number of filters in the first layer
         
         self.main = nn.Sequential(
-            # Input size is (input_channels) x 12 x 16
-            nn.Conv2d(input_channels, ndf, 4, 2, 1, bias=False),
+            nn.Conv2d(input_channels, ndf, 3, 1, 1, bias=False),  # Output: (batch_size, 64, grid_size/2, grid_size/2)
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(dropout),
-            # State size: (ndf) x 6 x 8
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+
+            nn.Conv2d(ndf, ndf * 2, 3, 1, 1, bias=False),  # Output: (batch_size, 128, grid_size/2, grid_size/2)
             nn.BatchNorm2d(ndf * 2),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(dropout),
-            # State size: (ndf*2) x 3 x 4
-            nn.Conv2d(ndf * 2, 1, 3, 1, 0, bias=False),
-            # State size: 1 x 1 x 1
-            nn.Sigmoid()  # Outputs a single probability (real vs. fake)
+
+            nn.Conv2d(ndf * 2, 1, 3, 2, 1, bias=False),  # Output: (batch_size, 1, 4, 4)
+            nn.LeakyReLU(0.2, inplace=True),
+
+            nn.Conv2d(1, 1, 4, 1, 0, bias=False),  # Output: (batch_size, 1, 1, 1)
+            nn.Sigmoid()  # Output a single probability (real vs. fake)
         )
 
     def forward(self, input):
+        input = input.float()
         return self.main(input).view(-1, 1).squeeze(1)

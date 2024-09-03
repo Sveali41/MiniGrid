@@ -28,8 +28,6 @@ class WMRLDataset(Dataset):
         self.act_norm_values = hparams.action_norm_values
         self.data = self.make_data(loaded)
 
-
-
     @func_set_timeout(100)
     def make_data(self, loaded):
         obs = self.normalize(loaded['a'])
@@ -105,21 +103,3 @@ class WMRLDataModule(pl.LightningDataModule):
             pin_memory=True,
             persistent_workers=True
         )
-
-
-# def normalize(x):
-#     """
-#     normalize the obs data and flatten it        
-#     """
-#     if not np.issubdtype(x.dtype, np.floating):
-#         x = x.astype(np.float32) 
-#     for i in range(x.shape[-1]):  # Loop over the last dimension
-#         max_value = np.max(x[:, :, :, i])  # Find the max value in the slice
-#         x[:, :, :, i] = x[:, :, :, i] / max_value  # Normalize the slice by its max value
-#     x = x.reshape(x.shape[0], -1)
-#     return x
-
-# loaded = np.load("modelBased/data/train_world_model/gridworld_full.npz")
-# a = loaded['a']
-# normalize(a)
-

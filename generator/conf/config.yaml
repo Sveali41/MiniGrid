@@ -2,8 +2,15 @@ data_generator:
   map_width: 8
   map_height: 8
   num_keys: 1
+  num_episodes: 10000
+  output_file: ${oc.env:GENERATOR_PATH}/data/generated_data.json
+  
 
 deconv:
+  z_shape: 128 
+  dropout : 0.3
+  output_channels: 2  # 2*8*8 grid world with 2 maps
+  grid_size: 8
   n_filters: 32
   kernel_size: 3
   stride: 1
@@ -11,9 +18,9 @@ deconv:
   output_padding: 0
   activation: relu
   batch_norm: True
-  dropout: 0.0
 
-base:
+basic:
+  z_dim: 64
   n_filters: 32
   kernel_size: 3
   stride: 1
@@ -21,3 +28,15 @@ base:
   activation: relu
   batch_norm: True
   dropout: 0.0
+
+training_generator:
+  # data 
+  data_dir: ${oc.env:GENERATOR_PATH}/data/generated_data.json
+  batch_size: 32
+  n_cpu: 4
+  # model
+  generator: "deconv"
+  n_epochs: 1000
+  lr: 0.0002
+  wd : 0.0
+  pth_path: ${oc.env:GENERATOR_PATH}/model

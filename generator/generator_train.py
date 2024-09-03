@@ -1,50 +1,98 @@
 import torch
 from torch import nn
 import os
+import sys
+sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from path import Paths
-from generator_vae import RandomCharacterDataset, DataLoader
+from data.datamodule import GenDataModule
 from generator.basic_gen import Generator, Discriminator
+import hydra
+from modelBased.common.utils import PROJECT_ROOT, get_env
+from omegaconf import DictConfig
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers.wandb import WandbLogger
+from gen import GAN
+from modelBased.common.utils import GENERATOR_PATH
 
-def train_gan(generator, discriminator, data_loader, device, num_epochs, latent_dim=500):
-    criterion = nn.BCELoss()
-    g_optimizer = torch.optim.Adam(generator.parameters(), lr=0.0002)
-    d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=0.0002)
+use_wandb = False
+if use_wandb:
+    import wandb
+    wandb.require("core")
 
-    for epoch in range(num_epochs):
-        for real_chars in data_loader:
-            real_chars = real_chars.to(device)
-            batch_size = real_chars.size(0)
 
-            # Train Discriminator
-            z = torch.randn(batch_size, latent_dim, device=device)
-            fake_chars = generator(z)
-            discriminator.zero_grad()
-            real_loss = criterion(discriminator(real_chars), torch.ones(batch_size, 1, device=device))
-            fake_loss = criterion(discriminator(fake_chars.detach()), torch.zeros(batch_size, 1, device=device))
-            d_loss = (real_loss + fake_loss) / 2
-            d_loss.backward()
-            d_optimizer.step()
+@hydra.main(version_base=None, config_path=str(GENERATOR_PATH / "conf"), config_name="config")
+def train(cfg: DictConfig):
+    hparams = cfg
+    # data
+    dataloader = GenDataModule(hparams = hparams.training_generator)
+    # model
+    if hparams.training_generator.generator == "deconv":
+        from deconv_gen import Generator, Discriminator
+        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, hparams.deconv.grid_size), 
+                    discriminator=Discriminator(hparams.deconv.output_channels, hparams.deconv.grid_size, hparams.deconv.dropout), 
+                    z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
+        
+    elif cfg.training_generator.model == "basic":
+        from basic_gen import Generator, Discriminator
+        model = GAN(generator=Generator(hparams.basic.z_shape, hparams.basic.dropout), discriminator=Discriminator(hparams.basic.input_channels, hparams.basic.dropout), z_size=hparams.basic.z_shape, lr=0.0002, wd=0.0)
 
-            # Train Generator
-            generator.zero_grad()
-            g_loss = criterion(discriminator(fake_chars), torch.ones(batch_size, 1, device=device))
-            g_loss.backward()
-            g_optimizer.step()
-        print(f'Epoch {epoch + 1}, g_Loss: {g_loss.item()}, d_Loss: {d_loss.item()}')
+    wandb_logger = WandbLogger(project="Gen Training", log_model=True)
+    # ## Currently it does not log the model weights, there is a bug in wandb and/or lightning.
+    wandb_logger.experiment.watch(model, log='all', log_freq=1000)
+    # Define the trainer
+    metric_to_monitor = 'combined_loss' #"loss"
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
+    checkpoint_callback = ModelCheckpoint(
+                            save_top_k=1,
+                            monitor = metric_to_monitor,
+                            mode = "min",
+                            dirpath = get_env('GENERATOR_MODEL_PATH'),
+                            filename ="gen-{epoch:02d}-{combined_loss:.4f}",
+                            verbose = True
+                        )
+    trainer = pl.Trainer(logger=wandb_logger,
+                    max_epochs=hparams.training_generator.n_epochs, 
+                    gpus=1,
+                    callbacks=[early_stop_callback, checkpoint_callback])     
+    # Start the training
+    trainer.fit(model,dataloader)
+    # Log the trained model
+    model_pth = hparams.training_generator.pth_folder
+    trainer.save_checkpoint(model_pth)
+    wandb.save(str(model_pth))
+
+
+@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
+def validate(cfg: DictConfig):
+    hparams = cfg
+    if hparams.training_generator.generator == "deconv":
+        from deconv_gen import Generator, Discriminator
+        model = GAN(generator=Generator(hparams.deconv.z_shape,hparams.training_generator.input_size, hparams.deconv.dropout), discriminator=Discriminator(hparams.training_generator.input_size, hparams.deconv.dropout), z_size=hparams.deconv.z_shape, lr=0.0002, wd=0.0)
+
+    elif cfg.training_generator.model == "basic":
+        from basic_gen import Generator, Discriminator
+        model = GAN(generator=Generator(hparams.basic.z_shape, hparams.basic.dropout), discriminator=Discriminator(hparams.basic.input_channels, hparams.basic.dropout), z_size=hparams.basic.z_shape, lr=0.0002, wd=0.0)
+    # Load the checkpoint
+    dataloader = GenDataModule(hparams = hparams.training_generator)
+    dataloader.setup()
+    checkpoint = torch.load(hparams.training_generator.pth_folder)
+    # Load state_dict into the model
+    model = GAN.load_from_checkpoint(checkpoint)
+    # Set the model to evaluation mode (optional, depends on use case)
+    model.eval()
+    batch_size = 64
+    num_tests = 20
+    for i in range(num_tests):
+        z = torch.randn(batch_size,hparams.training_generator.input_size)
+        with torch.no_grad():  
+            generated_maps = model(z)
+            print(generated_maps)
+    # Assuming the rest of your code is already set up as provided
+    pass
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    # Dataset and DataLoader setup
-    dataset = RandomCharacterDataset(1000, 10, 10)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-    # training model
-    output_dim = 500
-    input_dim = 500
-    gen = Generator(input_dim, output_dim).to(device)
-    dis = Discriminator(input_dim, output_dim).to(device)
-    train_gan(gen, dis, dataloader, device, num_epochs=10000)
-
-    # save model
-    path = Paths()
-    model_save = os.path.join(path.TRAINED_MODEL, 'generator_gan.pth')
+    train()
+    validate()
+    pass
