@@ -6,6 +6,7 @@ import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 import json
 from modelBased.common.utils import GENERATOR_PATH
+import os
 
 @hydra.main(version_base=None, config_path=str(GENERATOR_PATH / "conf"), config_name="config")
 def generate_map(cfg: DictConfig):
@@ -90,8 +91,45 @@ def format_maps(object_map, color_map):
     # Combine the two maps with a double newline separating them
     return f"{object_map_str}\n\n{color_map_str}"
 
+def load_existing_data(file_path):
+    # Check if the file exists
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            existing_data = json.load(f)
+    else:
+        existing_data = []
+    return existing_data
+
+@hydra.main(version_base=None, config_path=str(GENERATOR_PATH / "conf"), config_name="config")
+def add_new_maps(cfg: DictConfig):
+    # Load the existing data from the file
+    output_file = cfg.data_generator.output_file
+    existing_data = load_existing_data(output_file)
+    
+    # Generate new data without keys and doors
+    width = cfg.data_generator.map_width
+    height = cfg.data_generator.map_height
+    num_episodes = cfg.data_generator.num_episodes  # Number of new episodes to generate
+
+    new_episodes_list = []
+    for _ in range(num_episodes):
+        object_map, color_map = generate_obj_map(width, height, num_keys=0)  # No keys or doors
+        combined_map = format_maps(object_map, color_map)
+        new_episodes_list.append(combined_map)
+    
+    # Merge existing data with new data
+    updated_data = existing_data + new_episodes_list
+
+    # Save the merged data back to the file (or another file if preferred)
+    with open(output_file, 'w') as f:
+        json.dump(updated_data, f, indent=4)
+    
+    print(f"Added {num_episodes} new episodes without keys to {output_file}")
+
+
 if __name__ == "__main__":
     # Example of usage
     # Generate a basic valid map
-    generate_map()
+    add_new_maps()
+    # generate_map()
     pass

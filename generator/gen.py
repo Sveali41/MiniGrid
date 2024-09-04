@@ -64,8 +64,6 @@ class GAN(pl.LightningModule):
         real_images = batch
         batch_size = real_images.size(0)
         z = torch.randn(batch_size, self.z_size, 1, 1, device=self.device)
-        g_loss = None  # 
-        d_loss = None  # 
 
         if optimizer_idx == 0:
             # Generator training
@@ -82,14 +80,9 @@ class GAN(pl.LightningModule):
             discriminator_output_fake = self.discriminator(fake_images)
             d_loss = self.discriminator_loss_function(discriminator_output_real, discriminator_output_fake)
             self.log("d_loss", d_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            if g_loss is not None:
-                combined_loss = g_loss + d_loss
-            else:
-                combined_loss = d_loss
-            self.log("combined_loss", combined_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
             return d_loss
 
-    def validation_step(self, batch):
+    def validation_step(self, batch,batch_idx):
         real_images = batch
         batch_size = real_images.size(0)
 

@@ -39,4 +39,5 @@ training_generator:
   n_epochs: 1000
   lr: 0.0002
   wd : 0.0
-  pth_path: ${oc.env:GENERATOR_PATH}/model
+  pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model.ckpt
+  validation_path: ${oc.env:GENERATOR_PATH}/models/ckpt/gen-epoch=91-combined_loss=0.0001.ckpt

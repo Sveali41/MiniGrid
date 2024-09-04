@@ -15,12 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers.wandb import WandbLogger
 from gen import GAN
 from modelBased.common.utils import GENERATOR_PATH
-
-use_wandb = False
-if use_wandb:
-    import wandb
-    wandb.require("core")
-
+import wandb
 
 @hydra.main(version_base=None, config_path=str(GENERATOR_PATH / "conf"), config_name="config")
 def train(cfg: DictConfig):
@@ -42,7 +37,7 @@ def train(cfg: DictConfig):
     # ## Currently it does not log the model weights, there is a bug in wandb and/or lightning.
     wandb_logger.experiment.watch(model, log='all', log_freq=1000)
     # Define the trainer
-    metric_to_monitor = 'combined_loss' #"loss"
+    metric_to_monitor = 'd_loss' #"loss"
     early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
@@ -59,30 +54,32 @@ def train(cfg: DictConfig):
     # Start the training
     trainer.fit(model,dataloader)
     # Log the trained model
-    model_pth = hparams.training_generator.pth_folder
+    model_pth = hparams.training_generator.pth_path
     trainer.save_checkpoint(model_pth)
     wandb.save(str(model_pth))
 
 
-@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
+@hydra.main(version_base=None, config_path=str(GENERATOR_PATH / "conf"), config_name="config")
 def validate(cfg: DictConfig):
     hparams = cfg
     if hparams.training_generator.generator == "deconv":
         from deconv_gen import Generator, Discriminator
-        model = GAN(generator=Generator(hparams.deconv.z_shape,hparams.training_generator.input_size, hparams.deconv.dropout), discriminator=Discriminator(hparams.training_generator.input_size, hparams.deconv.dropout), z_size=hparams.deconv.z_shape, lr=0.0002, wd=0.0)
-
+        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, hparams.deconv.grid_size), 
+                    discriminator=Discriminator(hparams.deconv.output_channels, hparams.deconv.grid_size, hparams.deconv.dropout), 
+                    z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
+        
     elif cfg.training_generator.model == "basic":
         from basic_gen import Generator, Discriminator
         model = GAN(generator=Generator(hparams.basic.z_shape, hparams.basic.dropout), discriminator=Discriminator(hparams.basic.input_channels, hparams.basic.dropout), z_size=hparams.basic.z_shape, lr=0.0002, wd=0.0)
     # Load the checkpoint
     dataloader = GenDataModule(hparams = hparams.training_generator)
     dataloader.setup()
-    checkpoint = torch.load(hparams.training_generator.pth_folder)
+    checkpoint = torch.load(hparams.training_generator.validation_path)
     # Load state_dict into the model
     model = GAN.load_from_checkpoint(checkpoint)
     # Set the model to evaluation mode (optional, depends on use case)
     model.eval()
-    batch_size = 64
+    batch_size = hparams.training_generator.batch_size
     num_tests = 20
     for i in range(num_tests):
         z = torch.randn(batch_size,hparams.training_generator.input_size)
@@ -94,5 +91,5 @@ def validate(cfg: DictConfig):
 
 if __name__ == "__main__":
     train()
-    validate()
+    # validate()
     pass
