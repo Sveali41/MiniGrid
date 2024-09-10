@@ -57,7 +57,7 @@ class GenDataModule(pl.LightningDataModule):
         with open(self.data, 'r') as file:
             loaded = json.load(file)
         ## ----- 2024 09 09 multiprocessing to load the data -----
-        loaded = loaded[:100]
+        loaded = loaded[:1000]
         dataset = GenDataset(loaded, self.char_to_int)
         # totalCnt = len(loaded)
         # cupCnt = mp.cpu_count()
