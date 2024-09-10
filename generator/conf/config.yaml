@@ -41,3 +41,4 @@ training_generator:
   wd : 0.0
   pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model.ckpt
   validation_path: ${oc.env:GENERATOR_PATH}/models/ckpt/gen-epoch=91-combined_loss=0.0001.ckpt
+  map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}

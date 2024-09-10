@@ -25,7 +25,7 @@ def train(cfg: DictConfig):
     # model
     if hparams.training_generator.generator == "deconv":
         from deconv_gen import Generator, Discriminator
-        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, hparams.deconv.grid_size), 
+        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, len(hparams.training_generator.map_element), hparams.deconv.grid_size), 
                     discriminator=Discriminator(hparams.deconv.output_channels, hparams.deconv.grid_size, hparams.deconv.dropout), 
                     z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
         
@@ -75,16 +75,31 @@ def validate(cfg: DictConfig):
     dataloader = GenDataModule(hparams = hparams.training_generator)
     dataloader.setup()
     checkpoint = torch.load(hparams.training_generator.validation_path)
+
     # Load state_dict into the model
-    model = GAN.load_from_checkpoint(checkpoint)
+    ## ******test 2024 09 07 *******************
+    # moel.load can't directly read checkpoint['state_dict'],do as follows:
+    # model.load_from_checkpoint(checkpoint['state_dict'])
+    import io
+    state_dict = checkpoint['state_dict']
+    # make the state_dict a buffer
+    buffer = io.BytesIO()
+    torch.save(state_dict, buffer)
+    buffer.seek(0)
+
+    model.load_state_dict(torch.load(buffer))
+    ## **************************************************
+
+
     # Set the model to evaluation mode (optional, depends on use case)
     model.eval()
     batch_size = hparams.training_generator.batch_size
     num_tests = 20
     for i in range(num_tests):
-        z = torch.randn(batch_size,hparams.training_generator.input_size)
+        z = torch.randn(batch_size,hparams.deconv.z_shape)
         with torch.no_grad():  
             generated_maps = model(z)
+            generated_maps = torch.round(generated_maps)
             print(generated_maps)
     # Assuming the rest of your code is already set up as provided
     pass
