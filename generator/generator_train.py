@@ -26,7 +26,7 @@ def train(cfg: DictConfig):
     if hparams.training_generator.generator == "deconv":
         from deconv_gen import Generator, Discriminator
         model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, len(hparams.training_generator.map_element), hparams.deconv.grid_size), 
-                    discriminator=Discriminator(hparams.deconv.output_channels, hparams.deconv.grid_size, hparams.deconv.dropout), 
+                    discriminator=Discriminator(grid_size = hparams.deconv.grid_size, dropout = hparams.deconv.dropout), 
                     z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
         
     elif cfg.training_generator.model == "basic":
@@ -37,14 +37,14 @@ def train(cfg: DictConfig):
     # ## Currently it does not log the model weights, there is a bug in wandb and/or lightning.
     wandb_logger.experiment.watch(model, log='all', log_freq=1000)
     # Define the trainer
-    metric_to_monitor = 'd_loss' #"loss"
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
+    metric_to_monitor = 'g_loss' #"loss"
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.01, patience=50, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
                             monitor = metric_to_monitor,
                             mode = "min",
                             dirpath = get_env('GENERATOR_MODEL_PATH'),
-                            filename ="gen-{epoch:02d}-{combined_loss:.4f}",
+                            filename ="gen-{epoch:02d}-{g_loss:.4f}",
                             verbose = True
                         )
     trainer = pl.Trainer(logger=wandb_logger,
@@ -64,16 +64,16 @@ def validate(cfg: DictConfig):
     hparams = cfg
     if hparams.training_generator.generator == "deconv":
         from deconv_gen import Generator, Discriminator
-        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, hparams.deconv.grid_size), 
-                    discriminator=Discriminator(hparams.deconv.output_channels, hparams.deconv.grid_size, hparams.deconv.dropout), 
+        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, len(hparams.training_generator.map_element), hparams.deconv.grid_size), 
+                    discriminator=Discriminator(grid_size = hparams.deconv.grid_size, dropout = hparams.deconv.dropout), 
                     z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
         
     elif cfg.training_generator.model == "basic":
         from basic_gen import Generator, Discriminator
         model = GAN(generator=Generator(hparams.basic.z_shape, hparams.basic.dropout), discriminator=Discriminator(hparams.basic.input_channels, hparams.basic.dropout), z_size=hparams.basic.z_shape, lr=0.0002, wd=0.0)
     # Load the checkpoint
-    dataloader = GenDataModule(hparams = hparams.training_generator)
-    dataloader.setup()
+    # dataloader = GenDataModule(hparams = hparams.training_generator)
+    # dataloader.setup()
     checkpoint = torch.load(hparams.training_generator.validation_path)
 
     # Load state_dict into the model
@@ -89,8 +89,6 @@ def validate(cfg: DictConfig):
 
     model.load_state_dict(torch.load(buffer))
     ## **************************************************
-
-
     # Set the model to evaluation mode (optional, depends on use case)
     model.eval()
     batch_size = hparams.training_generator.batch_size
@@ -99,12 +97,12 @@ def validate(cfg: DictConfig):
         z = torch.randn(batch_size,hparams.deconv.z_shape)
         with torch.no_grad():  
             generated_maps = model(z)
-            generated_maps = torch.round(generated_maps)
+            generated_maps = torch.argmax(generated_maps, dim=1)
             print(generated_maps)
     # Assuming the rest of your code is already set up as provided
     pass
 
 if __name__ == "__main__":
-    train()
-    # validate()
+    # train()
+    validate()
     pass

@@ -1,6 +1,7 @@
 import torch.nn as nn
 import pytorch_lightning as pl
 import torch
+import torch.nn.functional as F
 
 
 # class Generator(nn.Module):
@@ -81,42 +82,48 @@ class Generator(nn.Module):
             nn.ReLU(True),
             
             # nn.ConvTranspose2d(128, self.num_classes, kernel_size=4, stride=2, padding=1, bias=False)
-            nn.ConvTranspose2d(128, self.num_classes*self.output_channel, kernel_size=1, stride=1, padding=0, bias=False)
+            nn.ConvTranspose2d(128, self.num_classes, kernel_size=1, stride=1, padding=0, bias=False)
 
         )
 
     def forward(self, z):
         #(batch_size, z_size, 1, 1)
         x = z.reshape(-1, self.z_size, 1, 1)
-        x = self.main(x)
-        x = x.view(x.size(0), 2, 6, x.size(2), x.size(3))
-        
-        x = nn.Softmax(dim=2)(x)  # (batch_size, num_classes, 8, 8)
+        x = self.main(x)        
+        x = nn.Softmax(dim=1)(x)  # (batch_size, num_classes, 8, 8)
         # x = torch.argmax(x, dim=2)
         return x # (32,2,6,8,8)
 
 class Discriminator(nn.Module):
-    def __init__(self, input_channels=12, grid_size=8, dropout=0.3):
+    def __init__(self, input_channels=6, grid_size=8, dropout=0.3):
         super(Discriminator, self).__init__()
-        ndf = 64  
-        self.grid_size = grid_size
+        ndf = 64  # Number of filters in the first layer
 
         self.main = nn.Sequential(
-            nn.Conv2d(input_channels, ndf, 3, 1, 1, bias=False),  
+            nn.Conv2d(input_channels, ndf, 3, 1, 1, bias=False),  # Adjusted input_channels to 6
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(dropout),
 
-            nn.Conv2d(ndf, ndf * 2, 3, 1, 1, bias=False),  
+            nn.Conv2d(ndf, ndf * 2, 3, 1, 1, bias=False),
             nn.BatchNorm2d(ndf * 2),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(dropout),
 
-            nn.Conv2d(ndf * 2, 1, kernel_size=grid_size, stride=1, padding=0, bias=False),  
-            nn.Sigmoid()  
+            nn.Conv2d(128, 1, kernel_size=8, stride=1, padding=0),
+            nn.Sigmoid()
         )
 
     def forward(self, input):
+        if input.shape[1:] == (8, 8):
+            # Reshape input from (32, 2, 8, 8) to (32 * 2 * 8 * 8)
+            reshaped_input = input.view(-1)  # Flatten 
+
+            # Apply one-hot encoding
+            one_hot_encoded = F.one_hot(reshaped_input, num_classes=6)  
+
+            # Reshape back to (32, 2, 6, 8, 8)
+            input = one_hot_encoded.view(input.shape[0], 8, 8, 6).permute(0, 3, 1, 2)  # Shape (32, 6, 8, 8)
+
         input = input.float()  
-        # input = input.view(input.size(0), 2 * 6, 8, 8)
         output = self.main(input)  
         return output.view(-1)  

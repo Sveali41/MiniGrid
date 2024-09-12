@@ -31,8 +31,9 @@ class GenDataset(Dataset):
             
             # Combine object and color tensors into a single tensor
             # combined_tensor = torch.cat((object_tensor, color_tensor), dim=0)
-            combined_tensor = torch.stack([object_tensor , color_tensor], dim=0)
-            self.data_pairs.append(combined_tensor)
+            # combined_tensor = torch.stack([object_tensor , color_tensor], dim=0)
+            # just keep the obj_map for the data
+            self.data_pairs.append(object_tensor)
 
     def __len__(self):
         return len(self.data_pairs)
@@ -56,8 +57,8 @@ class GenDataModule(pl.LightningDataModule):
     def setup(self, stage: Optional[str] = None):
         with open(self.data, 'r') as file:
             loaded = json.load(file)
-        ## ----- 2024 09 09 multiprocessing to load the data -----
-        loaded = loaded[:1000]
+        ## ----- 2024 09 09 multiprocessing to load the data ----- 
+        # loaded = loaded[0:1000]
         dataset = GenDataset(loaded, self.char_to_int)
         # totalCnt = len(loaded)
         # cupCnt = mp.cpu_count()
