@@ -18,16 +18,17 @@ class GenDataset(Dataset):
             i += 1
             if i % 300 == 0:
                 print(f"Process Name: {process.name}, PID: {os.getpid()}, DataIndex: {i}")
-            maps = episode_data.strip().split('\n\n')
-            object_map = maps[0].split('\n')
-            color_map = maps[1].split('\n')
+            object_map = episode_data.split('\n')
+            # maps = episode_data.strip().split('\n\n')
+            # object_map = maps[0].split('\n')
+            # color_map = maps[1].split('\n')
 
             # # Convert maps into flattened tensor format
             # object_tensor = self.map_to_tensor(object_map).flatten()
             # color_tensor = self.map_to_tensor(color_map).flatten()
 
             object_tensor = self.map_to_tensor(object_map, char_to_int)
-            color_tensor = self.map_to_tensor(color_map, char_to_int)
+            # color_tensor = self.map_to_tensor(color_map, char_to_int)
             
             # Combine object and color tensors into a single tensor
             # combined_tensor = torch.cat((object_tensor, color_tensor), dim=0)

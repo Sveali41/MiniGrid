@@ -1,0 +1,7 @@
+trainer:
+  level_dir:
+  generator_model: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
+  world_model: ${oc.env:WORLD_MODEL_PATH}/models/world_model.ckpt
+  policy_model: ${oc.env:POLICY_MODEL_PATH}/models/policy_model.ckpt
+  final_map: ${oc.env:FINAL_MAP_PATH}/final_map.json
+

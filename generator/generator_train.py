@@ -25,8 +25,8 @@ def train(cfg: DictConfig):
     # model
     if hparams.training_generator.generator == "deconv":
         from deconv_gen import Generator, Discriminator
-        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, len(hparams.training_generator.map_element), hparams.deconv.grid_size), 
-                    discriminator=Discriminator(grid_size = hparams.deconv.grid_size, dropout = hparams.deconv.dropout), 
+        model = GAN(generator=Generator(hparams.deconv.z_shape, len(hparams.training_generator.map_element)), 
+                    discriminator=Discriminator(dropout = hparams.deconv.dropout), 
                     z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
         
     elif cfg.training_generator.model == "basic":
@@ -37,7 +37,7 @@ def train(cfg: DictConfig):
     # ## Currently it does not log the model weights, there is a bug in wandb and/or lightning.
     wandb_logger.experiment.watch(model, log='all', log_freq=1000)
     # Define the trainer
-    metric_to_monitor = 'g_loss' #"loss"
+    metric_to_monitor = 'd_loss' #"loss"
     early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.01, patience=50, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
@@ -64,8 +64,8 @@ def validate(cfg: DictConfig):
     hparams = cfg
     if hparams.training_generator.generator == "deconv":
         from deconv_gen import Generator, Discriminator
-        model = GAN(generator=Generator(hparams.deconv.z_shape, hparams.deconv.output_channels, len(hparams.training_generator.map_element), hparams.deconv.grid_size), 
-                    discriminator=Discriminator(grid_size = hparams.deconv.grid_size, dropout = hparams.deconv.dropout), 
+        model = GAN(generator=Generator(hparams.deconv.z_shape, len(hparams.training_generator.map_element)), 
+                    discriminator=Discriminator(dropout = hparams.deconv.dropout), 
                     z_size=hparams.deconv.z_shape, lr=hparams.training_generator.lr, wd=hparams.training_generator.wd)
         
     elif cfg.training_generator.model == "basic":

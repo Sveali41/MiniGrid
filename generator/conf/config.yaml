@@ -1,23 +1,18 @@
 data_generator:
-  map_width: 8
-  map_height: 8
+  map_width: 12
+  map_height: 6
   num_keys: 1
-  num_episodes: 10000
-  output_file: ${oc.env:GENERATOR_PATH}/data/generated_data.json
+  num_episodes: 40000
+  output_file: ${oc.env:GENERATOR_PATH}/data/generated_data_final.json
   
 
 deconv:
   z_shape: 128 
   dropout : 0.3
   output_channels: 2  # 2*8*8 grid world with 2 maps
-  grid_size: 8
+  grid_size: [6,12]
   n_filters: 32
-  kernel_size: 3
-  stride: 1
-  padding: 1
-  output_padding: 0
-  activation: relu
-  batch_norm: True
+
 
 basic:
   z_dim: 64
@@ -31,7 +26,7 @@ basic:
 
 training_generator:
   # data 
-  data_dir: ${oc.env:GENERATOR_PATH}/data/generated_data.json
+  data_dir: ${oc.env:GENERATOR_PATH}/data/generated_data_final.json
   batch_size: 32
   n_cpu: 4
   # model
@@ -41,5 +36,7 @@ training_generator:
   wd : 0.0
   pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
   validation_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
-  map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
+  map_element: {'E': 0, 'W': 1, 'B': 2, 'O': 3, 'K': 4, 'D': 5}
+  # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
+  env_path: ${oc.env:TRAINER_PATH}/level/level.json
 

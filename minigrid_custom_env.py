@@ -46,7 +46,7 @@ def char_to_object(char: str, color: str) -> Optional[WorldObj]:
     obj_map = {
         'W': lambda: Wall(), 'F': lambda: Floor(), 'B': lambda: Ball(color),
         'K': lambda: Key(color), 'X': lambda: Box(color), 'D': lambda: Door(color, is_locked=True),
-        'G': lambda: Goal(), 'L': lambda: Lava(),
+        'G': lambda: Goal(), 'L': lambda: Lava(),'O': lambda: Door(color, is_locked=False)
     }
     constructor = obj_map.get(char, None)
     return constructor() if constructor else None
@@ -129,13 +129,32 @@ class CustomEnvFromFile(MiniGridEnv):
         """
         self.grid = Grid(width, height)
         self.read_layout_from_file()
-        # Randomize the starting direction again if it was initialized as random
+
+        # Define the assigned area for the agent start (top-left (x1, y1), bottom-right (x2, y2))
+        x1, y1 = 5, 1
+        x2, y2 = 7, 4
+
+        # Randomly assign a starting position within the defined area
+        if self.rand_agent_start_pos:
+            self.agent_start_pos = self.find_empty_position_in_area(x1, y1, x2, y2)
+
+        # Set direction (could be random or predefined)
         if self.rand_agent_start_dir:
             self.agent_start_dir = np.random.randint(0, 4)
-        if self.rand_agent_start_pos:
-            self.agent_start_pos = self.find_empty_position()
+
+        # Set the agent's position and direction
         self.agent_pos = self.agent_start_pos
         self.agent_dir = self.agent_start_dir
+
+    def find_empty_position_in_area(self, x1, y1, x2, y2):
+        """
+        Finds an empty position in the defined area (x1, y1) to (x2, y2).
+        """
+        while True:
+            # Randomly pick a position within the area
+            x = np.random.randint(x1, x2 + 1)
+            y = np.random.randint(y1, y2 + 1)
+            return (x, y)
 
     def read_layout_from_file(self) -> None:
         """
@@ -178,7 +197,7 @@ class CustomEnvFromFile(MiniGridEnv):
 if __name__ == "__main__":
     # Example usage of the CustomEnvFromFile class
     path = Paths()
-    env = CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
+    env = CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="pick up the yellow ball",
                             render_mode="human")
     env.reset()
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
