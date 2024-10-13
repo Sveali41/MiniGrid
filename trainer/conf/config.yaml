@@ -1,7 +1,15 @@
-trainer:
-  level_dir:
-  generator_model: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
-  world_model: ${oc.env:WORLD_MODEL_PATH}/models/world_model.ckpt
-  policy_model: ${oc.env:POLICY_MODEL_PATH}/models/policy_model.ckpt
+generator:
+  model_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
+  level_path: ${oc.env:TRAINER_PATH}/level/level.txt
+world_model:
+  env:
+    env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
+    visualize: False # to choose whether your want to see the env during interaction or not
+  collect:
+    episodes: 100 # number of episodes to start 
+    data_train: ${oc.env:TRAINER_PATH}/model/world_model/data/gridworld_full.npz
+  model_path: ${oc.env:WORLD_MODEL_PATH}/models/world_model.ckpt
+policy_model:
+  model_path: ${oc.env:POLICY_MODEL_PATH}/models/policy_model.ckpt
   final_map: ${oc.env:FINAL_MAP_PATH}/final_map.json
 

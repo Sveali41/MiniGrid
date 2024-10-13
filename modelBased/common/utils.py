@@ -44,3 +44,4 @@ load_envs()
 
 PROJECT_ROOT : Path = Path(get_env("PROJECT_ROOT"))
 GENERATOR_PATH : Path = Path(get_env("GENERATOR_PATH"))
+TRAINER_PATH : Path = Path(get_env("TRAINER_PATH"))

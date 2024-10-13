@@ -50,8 +50,8 @@ def load_generator(cfg: DictConfig):
     char_to_int = hparams.training_generator.map_element
     map = env_map(char_to_int, generated_map)
     output_file = hparams.training_generator.env_path
-    with open(output_file, 'w') as f:
-        json.dump(map, f, indent=4)
+    with open(output_file, 'w') as file:
+        file.write(map)
     print(f"Level map saved to {output_file}")
 
 
