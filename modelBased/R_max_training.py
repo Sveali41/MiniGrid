@@ -11,6 +11,7 @@ from datetime import datetime
 import hydra
 from modelBased.world_model_training import normalize, map_obs_to_nearest_value
 import torch
+from Rmax import RMaxExploration
 
 
 # set device to cpu or cuda
@@ -24,9 +25,13 @@ else:
     print("Device set to : cpu")
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
-def training_agent(cfg: DictConfig):
+def training_agent_with_rmax(cfg: DictConfig):
     """
     This function trains the agent using PPO algorithm based on R_max concept
+    1. collect env data from real env
+    2. train world model
+    3. collect data from world model
+    4. train PPO agent
     """
     hparams = cfg
 
@@ -49,11 +54,11 @@ def training_agent(cfg: DictConfig):
     checkpoint_path = hparams.PPO.checkpoint_path
     # world model hyperparameters
     grid_size = [hparams.world_model.map_height, hparams.world_model.map_width]
-    R_max = 1
+    # R_max hyperparameters
     wm_data_ep = hparams.data_collect.n_rollouts
-    
 
-    # 1. Real env
+
+    # 1. Real env initialization 
     path = Paths()
     env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="pick up the yellow ball",
                         max_steps=2000, render_mode="human"))
@@ -75,20 +80,26 @@ def training_agent(cfg: DictConfig):
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
     
-    # training loop
-    # initialize reward map
-    reward_map = {((i, j), a): R_max for i in range(grid_size[0]) for j in range(grid_size[1]) for a in range(action_dim)}
-    
-    while time_step <= max_training_timesteps:
-        current_ep_reward = 0
-        if print_running_episodes < wm_data_ep:
-        # collect data from real env to train PPO and wm
+    # 3. Initialize R_max exploration
+    rmax_exploration = RMaxExploration(state_dim, action_dim, R_max=1.0, exploration_threshold=10)
+    for time_step in range(1, hparams.R_max.max_training_timesteps + 1):
+        if time_step <= hparams.R_max.exploration_timesteps:
+            # when timestep < Rmax exploration threshold, collect data from real env
             state = env.reset()[0]['image']
-            state = normalize(state).to(device)
-            action = ppo_agent.select_action(state)
-            state =  env.step(action)[0]['image']
+            done = False
+            while not done:
+            # collect data from real env under the ppo policy to train World Model
+                state = normalize(state).to(device)
+                action = ppo_agent.select_action(state)
+                next_state, reward, done, _, _ =  env.step(action)
+                next_state = normalize(next_state['image']).to(device)
+                # save this to data buffer to train world model
+                # Count and state and action pair
+                rmax_exploration.update_visit_count(state.cpu().numpy(), action, reward, next_state.cpu().numpy())
+                state = next_state
+
         else:
-            # collect data from world model
+            # collect data from world model and update PPO agent
             state = state.squeeze()
             action = ppo_agent.select_action(state)
             state = model(state, torch.tensor(action/hparams.world_model.action_norm_values).to(device).unsqueeze(0))
@@ -137,12 +148,12 @@ def training_agent(cfg: DictConfig):
             # if done:
             #     break
 
-        print_running_reward += current_ep_reward
-        print_running_episodes += 1
+            print_running_reward += current_ep_reward
+            print_running_episodes += 1
 
-        i_episode += 1
+            i_episode += 1
 
     env.close()
 
 if __name__ == "__main__":
-    training_agent()
+    training_agent_with_rmax()

@@ -103,6 +103,73 @@ def validate(cfg: DictConfig):
         print(obs_real_map - obs_pred_map)
     pass
 
+def extract_agent_cross_mask(state):
+    """
+    Extract a cross-shaped mask centered on the agent's position.
+    
+    Parameters:
+        state (np.ndarray): The 3D array representing the gridworld state.
+                               
+    Returns:
+        np.ndarray: A 3D array of extracted content for the cross-shaped area
+                    around the agent, with the layout of 3*3 square, padding with 0.
+                    or None if agent is not found.
+    """
+    # Find agent's position in the grid
+    # For the agent position, the object value is 10
+    agent_position = np.argwhere(state[:, :, 0] == 10)[0]
+
+    # Check if the agent position is found
+    if len(agent_position) == 0:
+        print("Agent position not found.")
+        return None
+
+    # Extract y, x coordinates of the agent's position
+    y, x = agent_position
+    
+    
+    cross_structure = np.full((3, 3, state.shape[2]), 0)  # Create a 3x3 structure with None values
+
+    # Extract the content for each valid neighbor position
+    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)]:
+        ny, nx = y + dy, x + dx
+        if 0 <= ny < state.shape[0] and 0 <= nx < state.shape[1]:
+            cross_structure[dy + 1, dx + 1] = state[ny, nx]  # Place content in the cross structure
+
+    return cross_structure
+    
+
+def delta_state(state, next_state):
+    delta_state = next_state['image'].astype(np.int16)-state.astype(np.int16)
+    agent_position = np.argwhere(state[:, :, 0] == 10)[0]
+    mask = create_3x3_mask(state.shape, agent_position)
+    delta_state = delta_state[mask].reshape((3, 3, 3))
+    return delta_state
+
+def create_3x3_mask(state_shape, agent_position):
+    """
+    Creates a mask that selects a 3x3 square around the agent's position.
+
+    Parameters:
+        state_shape (tuple): The shape of the gridworld state array, e.g., (height, width, channels).
+        agent_position (tuple): The (y, x) coordinates of the agent's position.
+
+    Returns:
+        np.ndarray: A boolean mask array of the same shape as the state, with True in the 3x3 square around the agent.
+    """
+    # Initialize a mask of the same shape as the state but only for height and width dimensions
+    mask = np.zeros((state_shape[0], state_shape[1]), dtype=bool)
+    
+    # Calculate the boundaries of the 3x3 square around the agent, ensuring they stay within bounds
+    y, x = agent_position
+    y_start, y_end = max(0, y - 1), min(state_shape[0], y + 2)
+    x_start, x_end = max(0, x - 1), min(state_shape[1], x + 2)
+    
+    # Set the 3x3 square area around the agent to True
+    mask[y_start:y_end, x_start:x_end] = True
+    
+    return mask
+
 def denormalize(x):
     """Denormalize the obs data from its flattened state.
         input: x: torch.tensor of shape (,54)

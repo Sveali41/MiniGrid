@@ -42,6 +42,11 @@ PPO:
   save_model_freq: 2e4
   render: True
 
+R_max:
+  R_max: 1
+  exploration_timesteps: 1e4
+
+
 test_env:
   visualize: False
   time_limit: 256 #max number of steps for each rollout 600
