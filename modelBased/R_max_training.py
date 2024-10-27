@@ -12,6 +12,8 @@ import hydra
 from modelBased.world_model_training import normalize, map_obs_to_nearest_value
 import torch
 from Rmax import RMaxExploration
+from world_model_training import *
+from data_collect import *
 
 
 # set device to cpu or cuda
@@ -24,53 +26,86 @@ if torch.cuda.is_available():
 else:
     print("Device set to : cpu")
 
-@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
-def training_agent_with_rmax(cfg: DictConfig):
+def collect_data_from_env(cfg, env, policy, Rmax):
     """
-    This function trains the agent using PPO algorithm based on R_max concept
-    1. collect env data from real env
-    2. train world model
-    3. collect data from world model
-    4. train PPO agent
+    collect data from the environment using the given policy.
+    
+    Parameters:
+        policy: policy to collect data from the environment.
+        num_episodes: the number of episodes to collect.
+
+    Returns:
+        List of (state, action, next_state, reward) tuples.
+    """
+    obs, obs_next, act, rew, done = run_env(env, cfg.data_collect, policy, Rmax)
+    save_experiments(cfg.data_collect, obs, obs_next, act, rew, done, Rmax)
+
+
+def train_world_model(cfg, data=None, model=None):
+    """
+    Train the world model using the given data.
+
+    Parameters:
+        data: List of (state, action, next_state, reward) tuples.
+        model: The world model to train.
+        optimizer: The optimizer to use for training.
+        num_epochs: The number of epochs to train the model.
+
+    Returns:
+        The trained world model.
     """
     hparams = cfg
+    # data
+    dataloader = WMRLDataModule(hparams = hparams.world_model, data=data)
+    # Get a single batch from the dataloader
+    # 
+    # dataloader.setup()dataloader_train = dataloader.train_dataloader()
+    # dataloader_val = dataloader.val_dataloader()
+    if model is None:
+        net = SimpleNN(hparams=hparams)
+    wandb_logger = WandbLogger(project="WM Training", log_model=True)
+    wandb_logger.experiment.watch(net, log='all', log_freq=1000)
+    # Define the trainer
+    metric_to_monitor = 'avg_val_loss_wm'#"loss"
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
+    checkpoint_callback = ModelCheckpoint(
+                            save_top_k=1,
+                            monitor = metric_to_monitor,
+                            mode = "min",
+                            dirpath = get_env('PTH_FOLDER'),
+                            filename ="wm-{epoch:02d}-{avg_val_loss_wm:.4f}",
+                            verbose = True
+                        )
+    trainer = pl.Trainer(logger=wandb_logger,
+                    max_epochs=hparams.world_model.n_epochs, 
+                    gpus=1,
+                    callbacks=[early_stop_callback, checkpoint_callback])     
+    # Start the training
+    trainer.fit(net,dataloader)
+    # Log the trained model
+    model_pth = hparams.world_model.pth_folder
+    trainer.save_checkpoint(model_pth)
+    wandb.save(str(model_pth))
+    return net
 
-    # 1. hyperparameters
+def policy_initialization(cfg, env):
+    """
+    Initialize the policy.
+
+    Parameters:
+        cfg: The configuration object.
+
+    Returns:
+        The initialized policy.
+    """
     # PPO hyperparameters
-    start_time = datetime.now().replace(microsecond=0)
-    lr_actor = hparams.PPO.lr_actor
-    lr_critic = hparams.PPO.lr_critic
-    gamma = hparams.PPO.gamma
-    K_epochs = hparams.PPO.K_epochs
-    eps_clip = hparams.PPO.eps_clip
-    action_std = hparams.PPO.action_std
-    action_std_decay_rate = hparams.PPO.action_std_decay_rate
-    min_action_std = hparams.PPO.min_action_std
-    action_std_decay_freq = hparams.PPO.action_std_decay_freq
-    max_training_timesteps = hparams.PPO.max_training_timesteps
-    save_model_freq = hparams.PPO.save_model_freq
-    max_ep_len = hparams.PPO.max_ep_len
-    has_continuous_action_space = hparams.PPO.has_continuous_action_space
-    checkpoint_path = hparams.PPO.checkpoint_path
-    # world model hyperparameters
-    grid_size = [hparams.world_model.map_height, hparams.world_model.map_width]
-    # R_max hyperparameters
-    wm_data_ep = hparams.data_collect.n_rollouts
-
-
-    # 1. Real env initialization 
-    path = Paths()
-    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="pick up the yellow ball",
-                        max_steps=2000, render_mode="human"))
-    
-    # 2. Initialize training PPO
-    i_episode = 0
-    update_timestep = max_ep_len * 4  # update policy every n timesteps
-    print_freq = max_ep_len * 4
-    print_running_reward = 0
-    print_running_episodes = 0
-    time_step = 0
-    
+    lr_actor = cfg.PPO.lr_actor
+    lr_critic = cfg.PPO.lr_critic
+    gamma = cfg.PPO.gamma
+    K_epochs = cfg.PPO.K_epochs
+    eps_clip = cfg.PPO.eps_clip
+    action_std = cfg.PPO.action_std
+    has_continuous_action_space = cfg.PPO.has_continuous_action_space
     # action space dimension
     if has_continuous_action_space:
         action_dim = env.action_space
@@ -79,6 +114,44 @@ def training_agent_with_rmax(cfg: DictConfig):
     state_dim = np.prod(env.observation_space['image'].shape)
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
+    return ppo_agent
+
+def update_policy_with_world_model(cfg, env, policy, world_model, R_max):
+    """
+    Update the policy using the given data.
+
+    Parameters:
+        policy: The policy to update.
+        data: List of (state, action, next_state, reward) tuples.
+
+    Returns:
+        The updated policy.
+    """
+    hparams = cfg
+        # PPO hyperparameters
+    start_time = datetime.now().replace(microsecond=0)
+    action_std_decay_rate = cfg.PPO.action_std_decay_rate
+    min_action_std = cfg.PPO.min_action_std
+    action_std_decay_freq = cfg.PPO.action_std_decay_freq
+    save_model_freq = cfg.PPO.save_model_freq
+    max_ep_len = cfg.PPO.max_ep_len
+    has_continuous_action_space = cfg.PPO.has_continuous_action_space
+    checkpoint_path = cfg.PPO.checkpoint_path
+
+    # 1. Initialize training PPO
+    i_episode = 0
+    update_timestep = max_ep_len * 4  # update policy every n timesteps
+    print_freq = max_ep_len * 4
+    print_running_reward = 0
+    print_running_episodes = 0
+    time_step = 0
+   # action space dimension
+    if has_continuous_action_space:
+        action_dim = env.action_space
+    else:
+        action_dim = env.action_space.n
+    state_dim = np.prod(env.observation_space['image'].shape)
+    
     
     # 3. Initialize R_max exploration
     rmax_exploration = RMaxExploration(state_dim, action_dim, R_max=1.0, exploration_threshold=10)
@@ -90,7 +163,7 @@ def training_agent_with_rmax(cfg: DictConfig):
             while not done:
             # collect data from real env under the ppo policy to train World Model
                 state = normalize(state).to(device)
-                action = ppo_agent.select_action(state)
+                action = policy.select_action(state)
                 next_state, reward, done, _, _ =  env.step(action)
                 next_state = normalize(next_state['image']).to(device)
                 # save this to data buffer to train world model
@@ -154,6 +227,36 @@ def training_agent_with_rmax(cfg: DictConfig):
             i_episode += 1
 
     env.close()
+
+@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
+def training_agent_with_rmax(cfg: DictConfig):
+    """This function trains the agent using PPO algorithm based on R_max concept
+    1. collect env data from real env
+    2. train world model
+    3. collect data from world model
+    4. train PPO agent
+    """
+
+    # Params for R_max
+    path = Paths()
+    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="Find the key "
+                                                                                      "and open the "
+                                                                                      "door.",
+                        max_steps=2000, render_mode="human"))
+    num_iterations = cfg.R_max.num_iterations
+    exploration_policy = policy_initialization(cfg, env)
+    world_model = None  
+    rmax_exploration = RMaxExploration(cfg.R_max.R_max, cfg.R_max.exploration_threshold)
+    for _ in range(num_iterations):
+        # Step 1: collect env data from real env
+        # data = collect_data_from_env(cfg, env, exploration_policy, rmax_exploration)  
+
+        # Step 2: for iteration in range(num_iterations)
+        train_world_model(cfg)  
+
+        # Step 3: train PPO agent udpate policy with world model
+        exploration_policy = update_policy_with_world_model(cfg, env, world_model, exploration_policy, rmax_exploration)  
+
 
 if __name__ == "__main__":
     training_agent_with_rmax()

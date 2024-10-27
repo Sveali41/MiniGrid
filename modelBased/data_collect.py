@@ -7,27 +7,49 @@ import pandas as pd
 import json
 import hydra
 from modelBased.common.utils import PROJECT_ROOT
+from modelBased.world_model_training import normalize
 from omegaconf import DictConfig, OmegaConf
 import time
 from tqdm import tqdm
+import torch
 
-def run_env(env, cfg: DictConfig):
+# set device to cpu or cuda
+device = torch.device('cpu')
+
+if torch.cuda.is_available():
+    device = torch.device('cuda:0')
+    torch.cuda.empty_cache()
+    print("Device set to : " + str(torch.cuda.get_device_name(device)))
+else:
+    print("Device set to : cpu")
+
+def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
     obs_list, obs_next_list, act_list, rew_list, done_list = [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
 
     # Use tqdm to provide a progress bar
-    with tqdm(total=cfg.collect.episodes, desc="Collecting Episodes") as pbar:
-        while episodes < cfg.collect.episodes:
+    with tqdm(total=cfg.episodes, desc="Collecting Episodes") as pbar:
+        while episodes < cfg.episodes:
             obs_list.append([obs['image']])
-            act = env.action_space.sample()  # Restrict the number of actions to 2
+            if policy is None:
+                act = env.action_space.sample()  # Restrict the number of actions to 2
+            else:
+                state_norm = normalize(obs['image']).to(device)
+                act = policy.select_action(state_norm)
             obs, reward, done, _, _ = env.step(act)
             act_list.append([act])
             obs_next_list.append([obs['image']])
             rew_list.append([reward])
             done_list.append([done])
 
-            if cfg.env.visualize:  # Set to false to hide the GUI
+            # Update RMax visit count and store interaction
+            # if apply rmax exploration
+            if rmax_exploration is not None:
+                rmax_exploration.update_visit_count(obs['image'], act)
+
+
+            if cfg.visualize:  # Set to false to hide the GUI
                 env.render()
                 time.sleep(0.1)
 
@@ -53,8 +75,10 @@ def run_env(env, cfg: DictConfig):
 
     return obs_np, obs_next_np, act_np, rew_np, done_np
 
-def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done):
+def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done, Rmax=None):
     np.savez_compressed(cfg.collect.data_train, a=obs, b=obs_next, c=act, d=rew, e=done)
+    if Rmax is not None:
+        np.savez_compressed(cfg.collect.visit_count, Rmax=Rmax.visit_count)
 
 @hydra.main(version_base=None, config_path = str(PROJECT_ROOT / "conf/env"), config_name="config")
 def data_collect(cfg: DictConfig):

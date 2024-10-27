@@ -1,15 +1,20 @@
 data_collect:
-  n_rollouts: 1000
-  max_ep_len: 400
+  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
+  visualize: False # to choose whether your want to see the env during interaction or not
+  episodes: 1 # number of episodes to start 
+  collect:
+    data_train: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz # folder where to save the rollouts
+    visit_count: ${oc.env:TRAIN_DATASET_PATH}/visit_count_Rmax.npz # folder where to save the rollouts
 
 world_model:
+  model: 'Rmax'
   map_width: 12
   map_height: 6
   action_size: 1
   batch_size: 64
   n_cpu: 8
   hidden_size: 256 #hidden size
-  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full.npz
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz
   n_epochs: 100 # number of training epochs
   obs_size: 54 # height * width * channels = 6 * 3 * 3
   lr: 1e-3
@@ -45,6 +50,8 @@ PPO:
 R_max:
   R_max: 1
   exploration_timesteps: 1e4
+  num_iterations: 100
+  exploration_threshold: 10
 
 
 test_env:

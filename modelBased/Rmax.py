@@ -1,7 +1,10 @@
 import numpy as np
+import sys
+sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
+from modelBased.data.datamodule import extract_agent_cross_mask
 
 class RMaxExploration:
-    def __init__(self, state_dim, action_dim, R_max=1.0, exploration_threshold=10, buffer_size=10000):
+    def __init__(self, R_max=1.0, exploration_threshold=10):
         """
         Initialize R-max exploration parameters and buffer for storing collected data.
 
@@ -15,8 +18,6 @@ class RMaxExploration:
         self.R_max = R_max  # Maximum assumed reward for unexplored state-action pairs
         self.exploration_threshold = exploration_threshold  # Exploration threshold
         self.visit_count = {}  # Visit count for each state-action pair
-        self.buffer = []  # Initialize the buffer to store collected interactions
-        self.buffer_size = buffer_size  # Maximum buffer size
     
     def get_rmax_reward(self, state, action, real_reward):
         """
@@ -36,7 +37,7 @@ class RMaxExploration:
         else:
             return real_reward  # Use the actual reward after sufficient exploration
 
-    def update_visit_count(self, state, action, reward, next_state):
+    def update_visit_count(self, state, action):
         """
         Increment the visit count for the given state-action pair and store the interaction
         in the buffer.
@@ -47,31 +48,18 @@ class RMaxExploration:
             reward (float): Observed reward.
             next_state (array): The next state observed after taking the action.
         """
-        # Add the interaction to the buffer
-        self.add_to_buffer(state, action, reward, next_state)
         # Count the visit for the state-action pair
-        state = tuple(state)
+        # process and extract the state
+        state = extract_agent_cross_mask(state)
+        state = tuple(state.flatten()) if isinstance(state, np.ndarray) else state.flatten()
         key = (state, action)
-        if key not in self.visit_count.keys():
+
+        # Update visit count
+        if key not in self.visit_count:
             self.visit_count[key] = 1
-        self.visit_count[key] += 1
+        else:
+            self.visit_count[key] += 1
         
-
-    
-    def add_to_buffer(self, state, action, reward, next_state):
-        """
-        Add the interaction to the buffer and ensure the buffer doesn't exceed its maximum size.
-
-        Args:
-            state (float): Current state.
-            action (int): Action taken.
-            reward (float): Observed reward.
-            next_state (float): The next state observed after taking the action.
-        """
-        # Add the interaction to the buffer
-        if len(self.buffer) >= self.buffer_size:
-            self.buffer.pop(0)  # Remove the oldest data if buffer is full
-        self.buffer.append((state, action, reward, next_state))
 
     def should_explore(self, state, action):
         """
@@ -85,24 +73,3 @@ class RMaxExploration:
             bool: True if the state-action pair needs more exploration, False otherwise.
         """
         return self.visit_count[state, action] < self.exploration_threshold
-
-    def sample_buffer(self, batch_size):
-        """
-        Sample a batch of interactions from the buffer.
-
-        Args:
-            batch_size (int): Number of samples to retrieve.
-
-        Returns:
-            list of tuples: A batch of (state, action, reward, next_state) from the buffer.
-        """
-        if len(self.buffer) < batch_size:
-            return self.buffer  # If the buffer has fewer than batch_size elements, return all
-        indices = np.random.choice(len(self.buffer), batch_size, replace=False)
-        return [self.buffer[i] for i in indices]
-
-    def clear_buffer(self):
-        """
-        Clear the buffer, useful when you want to start fresh or after training the world model.
-        """
-        self.buffer = []

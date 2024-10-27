@@ -197,8 +197,10 @@ class CustomEnvFromFile(MiniGridEnv):
 if __name__ == "__main__":
     # Example usage of the CustomEnvFromFile class
     path = Paths()
-    env = CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="pick up the yellow ball",
-                            render_mode="human")
+    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="Find the key "
+                                                                                      "and open the "
+                                                                                      "door.",
+                            render_mode="human"))
     env.reset()
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
