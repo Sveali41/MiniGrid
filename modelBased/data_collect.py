@@ -75,10 +75,8 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
 
     return obs_np, obs_next_np, act_np, rew_np, done_np
 
-def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done, Rmax=None):
+def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done):
     np.savez_compressed(cfg.collect.data_train, a=obs, b=obs_next, c=act, d=rew, e=done)
-    if Rmax is not None:
-        np.savez_compressed(cfg.collect.visit_count, Rmax=Rmax.visit_count)
 
 @hydra.main(version_base=None, config_path = str(PROJECT_ROOT / "conf/env"), config_name="config")
 def data_collect(cfg: DictConfig):

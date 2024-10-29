@@ -60,16 +60,10 @@ class RMaxExploration:
         else:
             self.visit_count[key] += 1
         
+    
+    def save_count(self, path):
+        np.savez_compressed(path, Rmax=self.visit_count)
 
-    def should_explore(self, state, action):
-        """
-        Check if the agent should explore the state-action pair based on the visit count.
+    def load_count(self, path): 
+        self.visit_count = np.load(path, allow_pickle=True)['Rmax'].item()
 
-        Args:
-            state (int): Current state.
-            action (int): Action taken.
-
-        Returns:
-            bool: True if the state-action pair needs more exploration, False otherwise.
-        """
-        return self.visit_count[state, action] < self.exploration_threshold

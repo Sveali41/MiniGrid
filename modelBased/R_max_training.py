@@ -13,8 +13,10 @@ from modelBased.world_model_training import normalize, map_obs_to_nearest_value
 import torch
 from Rmax import RMaxExploration
 from world_model_training import *
+from PPO_world_training import get_destination, find_position
 from data_collect import *
-
+import wandb
+from data.datamodule import extract_agent_cross_mask
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -25,6 +27,44 @@ if torch.cuda.is_available():
     print("Device set to : " + str(torch.cuda.get_device_name(device)))
 else:
     print("Device set to : cpu")
+
+def postprocess_delta_obs_batch(obs):
+    # Round, convert to int, and reshape to (3, 3, 3)
+    obs = obs.round().int().view(3, 3, 3)
+    return obs
+
+def replace_values(source, target, position):
+    """
+    Replace the values in target tensor with the values in source tensor.
+    
+    Args:
+        source (torch.Tensor): Source tensor of shape (3, 3, 3).
+        target (torch.Tensor): Target tensor of shape (*, *, 3).
+        position (tuple): Position (x, y) of the center in the target tensor.
+        
+    Returns:
+        torch.Tensor: The target tensor with values from the source tensor replaced at the specified position.
+    """
+    # Check if the source tensor is of the correct shape
+    if source.shape != (3, 3, 3):
+        raise ValueError("source tensor must be of shape (3, 3, 3)")
+    
+    # Get the center position in the target tensor
+    x, y = position
+    
+    # Define relative positions to update around the center position
+    offsets = [(0, 1), (1, 1), (2, 1), (1, 0), (1, 2)]
+    
+    # Replace values in target tensor using the relative offsets
+    for dx, dy in offsets:
+        # Calculate the target position in the target tensor
+        target_x = x + (dx - 1)
+        target_y = y + (dy - 1)
+        
+        # Replace the value at the target position with the corresponding value in the source tensor
+        target[target_x, target_y] = source[dx, dy]
+    
+    return target
 
 def collect_data_from_env(cfg, env, policy, Rmax):
     """
@@ -38,7 +78,10 @@ def collect_data_from_env(cfg, env, policy, Rmax):
         List of (state, action, next_state, reward) tuples.
     """
     obs, obs_next, act, rew, done = run_env(env, cfg.data_collect, policy, Rmax)
-    save_experiments(cfg.data_collect, obs, obs_next, act, rew, done, Rmax)
+    save_experiments(cfg.data_collect, obs, obs_next, act, rew, done)
+    # save count of the visit
+    Rmax.save_count(cfg.collect.visit_count)
+
 
 
 def train_world_model(cfg, data=None, model=None):
@@ -62,18 +105,18 @@ def train_world_model(cfg, data=None, model=None):
     # dataloader.setup()dataloader_train = dataloader.train_dataloader()
     # dataloader_val = dataloader.val_dataloader()
     if model is None:
-        net = SimpleNN(hparams=hparams)
-    wandb_logger = WandbLogger(project="WM Training", log_model=True)
+        net = SimpleNN(hparams=hparams, model=True)
+    wandb_logger = WandbLogger(project="WM_Rmax", log_model=True)
     wandb_logger.experiment.watch(net, log='all', log_freq=1000)
     # Define the trainer
     metric_to_monitor = 'avg_val_loss_wm'#"loss"
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=50, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
                             monitor = metric_to_monitor,
                             mode = "min",
                             dirpath = get_env('PTH_FOLDER'),
-                            filename ="wm-{epoch:02d}-{avg_val_loss_wm:.4f}",
+                            filename ="wm_rmax-{epoch:02d}-{avg_val_loss_wm:.4f}",
                             verbose = True
                         )
     trainer = pl.Trainer(logger=wandb_logger,
@@ -116,13 +159,15 @@ def policy_initialization(cfg, env):
                     action_std)
     return ppo_agent
 
-def update_policy_with_world_model(cfg, env, policy, world_model, R_max):
+def update_policy_with_world_model(cfg, env, policy, R_max):
     """
     Update the policy using the given data.
 
     Parameters:
         policy: The policy to update.
-        data: List of (state, action, next_state, reward) tuples.
+        world model: The world model to use for updating the policy.
+        R_max: The R_max value for the R_max exploration.
+        env: The environment to reset.
 
     Returns:
         The updated policy.
@@ -137,6 +182,7 @@ def update_policy_with_world_model(cfg, env, policy, world_model, R_max):
     max_ep_len = cfg.PPO.max_ep_len
     has_continuous_action_space = cfg.PPO.has_continuous_action_space
     checkpoint_path = cfg.PPO.checkpoint_path
+    max_training_timesteps = cfg.PPO.max_training_timesteps
 
     # 1. Initialize training PPO
     i_episode = 0
@@ -145,56 +191,56 @@ def update_policy_with_world_model(cfg, env, policy, world_model, R_max):
     print_running_reward = 0
     print_running_episodes = 0
     time_step = 0
-   # action space dimension
-    if has_continuous_action_space:
-        action_dim = env.action_space
-    else:
-        action_dim = env.action_space.n
-    state_dim = np.prod(env.observation_space['image'].shape)
     
-    
+    # 2. load the world model
+    world_model = SimpleNN(hparams=hparams, model=True).to(device)
+    checkpoint = torch.load(hparams.world_model.pth_folder)
+    world_model.load_state_dict(checkpoint['state_dict'])
+    # Set the model to evaluation mode (optional, depends on use case)
+    world_model.eval()
     # 3. Initialize R_max exploration
-    rmax_exploration = RMaxExploration(state_dim, action_dim, R_max=1.0, exploration_threshold=10)
-    for time_step in range(1, hparams.R_max.max_training_timesteps + 1):
-        if time_step <= hparams.R_max.exploration_timesteps:
-            # when timestep < Rmax exploration threshold, collect data from real env
-            state = env.reset()[0]['image']
-            done = False
-            while not done:
-            # collect data from real env under the ppo policy to train World Model
-                state = normalize(state).to(device)
-                action = policy.select_action(state)
-                next_state, reward, done, _, _ =  env.step(action)
-                next_state = normalize(next_state['image']).to(device)
-                # save this to data buffer to train world model
-                # Count and state and action pair
-                rmax_exploration.update_visit_count(state.cpu().numpy(), action, reward, next_state.cpu().numpy())
-                state = next_state
+    R_max.load_count(cfg.data_collect.collect.visit_count)
+    
+    # training loop
+    while time_step <= max_training_timesteps:
+        state = env.reset()[0]['image']
+        goal_position = find_position(state, (8, 1, 0)) # find the goal position
+        current_ep_reward = 0
+        for t in range(1, max_ep_len + 1):
+            # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
+            if t==1:
+                agent_pos = np.argwhere(state[:, :, 0] == 10)
+                state_extract = extract_agent_cross_mask(state)
+                state_extract_norm = normalize(state_extract).to(device)
+            # else:
+            #     agent_pos = np.argwhere(state[:, :, 0] == 10)
+            #     state_extract = extract_agent_cross_mask(state)
+            #     state_extract_norm = normalize(state_extract).to(device)
 
-        else:
-            # collect data from world model and update PPO agent
-            state = state.squeeze()
-            action = ppo_agent.select_action(state)
-            state = model(state, torch.tensor(action/hparams.world_model.action_norm_values).to(device).unsqueeze(0))
-            state = state.to(dtype=torch.float32)
-            # denorm the state
-            state_denorm = map_obs_to_nearest_value(cfg, state)
+            state_norm = normalize(state).to(device)
+            action = policy.select_action(state_norm)
+            delta_state = postprocess_delta_obs_batch(world_model(state_extract_norm, torch.tensor(action/hparams.world_model.action_norm_values).to(device).unsqueeze(0)))
+            state_change = torch.tensor(state_extract).to(device) + delta_state
+            state_next = replace_values(state_change, torch.tensor(state).to(device), agent_pos[0])
             # obtain reward from the state representation & done
-            done, reward = get_destination(state_denorm, t, max_ep_len, device)
+            done, reward = get_destination(state_next, t, max_ep_len, goal_position)
+            reward = R_max.get_rmax_reward(state_next, action, reward)
+            # get the R_max value for the rewards
             # saving reward and is_terminals
-            ppo_agent.buffer.rewards.append(reward)
-            ppo_agent.buffer.is_terminals.append(done)
+            policy.buffer.rewards.append(reward)
+            policy.buffer.is_terminals.append(done)
+            state = state_next
 
             time_step += 1
             current_ep_reward += reward
 
             # update PPO agent
             if time_step % update_timestep == 0:
-                ppo_agent.update()
+                policy.update()
 
             # if continuous action space; then decay action std of ouput action distribution
             if has_continuous_action_space and time_step % action_std_decay_freq == 0:
-                ppo_agent.decay_action_std(action_std_decay_rate, min_action_std)
+                policy.decay_action_std(action_std_decay_rate, min_action_std)
 
             if time_step % print_freq == 0:
                 # print average reward till last episode
@@ -212,21 +258,23 @@ def update_policy_with_world_model(cfg, env, policy, world_model, R_max):
             if time_step % save_model_freq == 0:
                 print("--------------------------------------------------------------------------------------------")
                 print("saving model at : " + checkpoint_path)
-                ppo_agent.save(checkpoint_path)
+                policy.save(checkpoint_path)
                 print("model saved")
                 print("Elapsed Time  : ", datetime.now().replace(microsecond=0) - start_time)
                 print("--------------------------------------------------------------------------------------------")
 
             # break; if the episode is over
-            # if done:
-            #     break
+            if done:
+                break
 
-            print_running_reward += current_ep_reward
-            print_running_episodes += 1
+        print_running_reward += current_ep_reward
+        print_running_episodes += 1
 
-            i_episode += 1
+        i_episode += 1
 
     env.close()
+
+
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
 def training_agent_with_rmax(cfg: DictConfig):
@@ -242,21 +290,60 @@ def training_agent_with_rmax(cfg: DictConfig):
     env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="Find the key "
                                                                                       "and open the "
                                                                                       "door.",
-                        max_steps=2000, render_mode="human"))
+                        max_steps=20000, render_mode='human'))
     num_iterations = cfg.R_max.num_iterations
     exploration_policy = policy_initialization(cfg, env)
     world_model = None  
     rmax_exploration = RMaxExploration(cfg.R_max.R_max, cfg.R_max.exploration_threshold)
     for _ in range(num_iterations):
-        # Step 1: collect env data from real env
+        # # Step 1: collect env data from real env
         # data = collect_data_from_env(cfg, env, exploration_policy, rmax_exploration)  
 
-        # Step 2: for iteration in range(num_iterations)
-        train_world_model(cfg)  
+        # # Step 2: for iteration in range(num_iterations)
+        # train_world_model(cfg)  
 
-        # Step 3: train PPO agent udpate policy with world model
-        exploration_policy = update_policy_with_world_model(cfg, env, world_model, exploration_policy, rmax_exploration)  
+        # # Step 3: train PPO agent udpate policy with world model
+        exploration_policy = update_policy_with_world_model(cfg, env, exploration_policy, rmax_exploration)  
+
+@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
+def validate(cfg: DictConfig):
+    hparams = cfg
+    model = SimpleNN(hparams=hparams, model=True)
+    # Load the checkpoint
+    dataloader = WMRLDataModule(hparams = hparams.world_model)
+    dataloader.setup()
+    checkpoint = torch.load(hparams.world_model.pth_folder)
+    # Load state_dict into the model
+    model.load_state_dict(checkpoint['state_dict'])
+    # Set the model to evaluation mode (optional, depends on use case)
+    model.eval()
+    # Assuming the rest of your code is already set up as provided
+    batch_size = 64
+    num_tests = 20
+
+    # Loop over the first 10 observations
+    for i in range(num_tests):
+        # Collecting the first 64 samples for the current test observation
+        obs_batch = torch.tensor([dataloader.data_test[j]['obs'] for j in range(batch_size)])
+        act_batch = torch.tensor([dataloader.data_test[j]['act'] for j in range(batch_size)])
+        obs_real_batch = torch.tensor([dataloader.data_test[j]['obs_next'] for j in range(batch_size)])
+
+        # Predict using the model
+        obs_pred = model(obs_batch, act_batch)
+        # map the observation to the nearest valid value
+        obs_pred_map = []
+        for k in range(batch_size):
+            # denormalize the observation
+            # add the denormalized and the delta observation
+            delta_obs = postprocess_delta_obs_batch(obs_pred[k])
+            obs_current = denormalize(obs_batch[k],3)
+            obs_add = delta_obs + obs_current
+            # print((delta_obs-obs_real_batch[k].view(3, 3, 3)).sum())
+            obs_pred_map.append(int((delta_obs-obs_real_batch[k].view(3, 3, 3)).sum()))
+        print(obs_pred_map)
+    pass
 
 
 if __name__ == "__main__":
     training_agent_with_rmax()
+    # validate()

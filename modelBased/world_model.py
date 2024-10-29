@@ -15,7 +15,7 @@ from typing import Sequence, List, Dict, Tuple, Optional, Any, Set, Union, Calla
 import wandb
 
 class SimpleNN(pl.LightningModule):
-    def __init__(self, hparams):
+    def __init__(self, hparams, model=False):
         super(SimpleNN, self).__init__()
         hparams = hparams.world_model
         self.save_hyperparameters(hparams)
@@ -23,6 +23,7 @@ class SimpleNN(pl.LightningModule):
         self.n_hidden = hparams.hidden_size
         self.action_size = hparams.action_size
         self.total_input_size = self.obs_size + self.action_size
+        self.model = model
         # # Define the first dense layer to process the combined input
         # self.shared_layers = nn.Sequential(
         #     nn.Linear(self.total_input_size, self.n_hidden),
@@ -49,6 +50,8 @@ class SimpleNN(pl.LightningModule):
             # nn.Linear(self.n_hidden),
             # nn.ReLU()
         )
+        
+        self.state_head_Rmax = nn.Linear(self.n_hidden, self.obs_size)
 
 
     def forward(self, input_obs, input_action):
@@ -60,8 +63,14 @@ class SimpleNN(pl.LightningModule):
         else:
             input_action = input_action.unsqueeze(1)
             combined_input = torch.cat((input_obs, input_action), dim=1)
+        # Convert combined_input to Float if necessary
+        if combined_input.dtype != torch.float32:
+            combined_input = combined_input.float()
         out = self.shared_layers(combined_input)
-        obs_out = self.state_head(out)
+        if self.model:
+            obs_out = self.state_head_Rmax(out) 
+        else:
+            obs_out = self.state_head(out)
         # reward_out = torch.sigmoid(self.reward_head(out))
         # done_out = self.done_head(out)
         #
@@ -78,9 +87,9 @@ class SimpleNN(pl.LightningModule):
     #     original = original.view(-1, original.shape[-1])
     #     return F.mse_loss(predict, original, reduction='mean')
 
-    def loss_function(self, next_observation_predict, next_observations_true):
+    def loss_function(self, next_observations_predict, next_observations_true):
         loss = nn.MSELoss()
-        loss_obs = loss(next_observation_predict, next_observations_true)
+        loss_obs = loss(next_observations_predict, next_observations_true)
         loss = {'loss_obs':loss_obs}
         return loss
     
@@ -103,6 +112,8 @@ class SimpleNN(pl.LightningModule):
         act = batch['act']
         obs_pred = self(obs, act)
         obs_next = batch['obs_next']
+        if obs_next.dtype != obs_pred.dtype:
+            obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
         self.log_dict(loss)
         return loss['loss_obs']
@@ -112,6 +123,8 @@ class SimpleNN(pl.LightningModule):
         act = batch['act']
         obs_pred = self(obs, act)
         obs_next = batch['obs_next']
+        if obs_next.dtype != obs_pred.dtype:
+            obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
         self.log_dict(loss)
         return {"loss_wm_val": loss['loss_obs']}

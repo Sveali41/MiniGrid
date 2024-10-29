@@ -99,7 +99,7 @@ class WMRLDataset(Dataset):
         # Create a dictionary to store processed data
         data = {
             'obs': obs,
-            'obs_delta': obs_delta,
+            'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
             'act': act,
             # 'done': done
         }
@@ -149,9 +149,9 @@ class WMRLDataset(Dataset):
         return mask
     
     def delta_batch_preprocess(self, state, next_state):
-        delta_state = np.zeros((state.shape[0], 3, 3, state.shape[-1]))
+        delta_state = np.zeros((state.shape[0], 3 * 3 * state.shape[-1])) 
         for i in range(state.shape[0]):
-            delta_state[i] = self.delta_state(state[i], next_state[i])
+            delta_state[i] = self.delta_state(state[i], next_state[i]).reshape(-1)
         return delta_state
 
     def delta_state(self, state, next_state):

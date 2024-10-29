@@ -26,7 +26,7 @@ if torch.cuda.is_available():
 else:
     print("Device set to : cpu")
 
-def get_destination(obs, episode, maxstep, device):
+def get_destination(obs, episode, maxstep, destination):
     """
     from the obs state, check if the agent has reached the destination
     and return done and reward
@@ -52,36 +52,8 @@ def get_destination(obs, episode, maxstep, device):
 
     check from wrappers.py full_obs-->encode
     """
-    
-    destination = torch.tensor(np.array(
-        [[[ 2,  5,  0],
-        [ 2,  5,  0],
-        [ 2,  5,  0]],
-
-       [[ 2,  5,  0],
-        [ 1,  0,  0],
-        [ 2,  5,  0]],
-
-       [[ 2,  5,  0],
-        [ 1,  0,  0],
-        [ 2,  5,  0]],
-
-       [[ 2,  5,  0],
-        [10,  0,  0],
-        [ 2,  5,  0]],
-
-       [[ 2,  5,  0],
-        [ 8,  1,  0],
-        [ 2,  5,  0]],
-
-       [[ 2,  5,  0],
-        [ 2,  5,  0],
-        [ 2,  5,  0]]])).to(device).float()
-    
-
-
-    # when next_obs = destination-> done = True, otherwise = False
-    if torch.equal(destination, obs):
+    if obs[destination[0], destination[1]][0] == 10:
+        # agent has reached the destination
         if episode >= maxstep:
             done = True
             reward = 0
@@ -93,6 +65,27 @@ def get_destination(obs, episode, maxstep, device):
         reward = 0
     return done, reward
 
+
+def find_position(array, target):
+    """
+    Find the position of a target value in a 3D numpy array.
+    
+    Args:
+        array (np.ndarray): The 3D array to search.
+        target (tuple): The target value to locate (e.g., (8, 1, 0)).
+
+    Returns:
+        tuple: The position (x, y) of the target in the array if found, otherwise None.
+    """
+    # Find all indices where the value matches the target
+    result = np.argwhere((array == target).all(axis=-1))
+
+    # Check if any matches were found
+    if result.size > 0:
+        return tuple(result[0])  # Return the first match as a tuple (x, y)
+    else:
+        return None
+    
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/model"), config_name="config")
 def training_agent(cfg: DictConfig):
     hparams = cfg
@@ -148,6 +141,7 @@ def training_agent(cfg: DictConfig):
     # training loop
     while time_step <= max_training_timesteps:
         state = env.reset()[0]['image']
+        goal_position = find_position(state (8, 1, 0)) # find the goal position
         current_ep_reward = 0
         for t in range(1, max_ep_len + 1):
             # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
@@ -160,9 +154,8 @@ def training_agent(cfg: DictConfig):
             state = state.to(dtype=torch.float32)
             # denorm the state
             state_denorm = map_obs_to_nearest_value(cfg, state)
-
             # obtain reward from the state representation & done
-            done, reward = get_destination(state_denorm, t, max_ep_len, device)
+            done, reward = get_destination(state_denorm, t, max_ep_len, goal_position)
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)

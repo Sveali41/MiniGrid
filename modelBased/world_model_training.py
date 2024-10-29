@@ -104,13 +104,13 @@ def validate(cfg: DictConfig):
     pass
 
 
-def denormalize(x):
-    """Denormalize the obs data from its flattened state.
+def denormalize(x, dimension=6):
+    """Denormalize the obs dimensiondata from its flattened state.
         input: x: torch.tensor of shape (,54)
     """
     obs_norm_values = [10, 5, 3] # Example normalization values for 3 channels
     # Reshape the data to its original shape before flattening
-    x = x.reshape(6,3,3)
+    x = x.reshape(dimension,3,3)
     
     # Ensure that the norm_values is not None and has the correct length
     if obs_norm_values is None or len(obs_norm_values) != x.shape[-1]:
