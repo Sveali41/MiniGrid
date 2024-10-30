@@ -34,17 +34,22 @@ def extract_agent_cross_mask(state):
         """
         # Find agent's position in the grid
         # For the agent position, the object value is 10
-        agent_position = np.argwhere(state[:, :, 0] == 10)[0]
+
+                
+        agent_position = np.argwhere(state[:, :, 0] == 10)
 
         # Check if the agent position is found
         if len(agent_position) == 0:
-            print("Agent position not found.")
-            return None
+            # Could't find the agent position where =10,  take the position where closest to 10 as agent position
+            index = np.argmax(state[:, :, 0])
+            print(f"Warning! Agent position not found, assume max value: {state[:, :, 0].max()} as agent")
+            y, x = index // state.shape[1], index % state.shape[1]
+            # return None
+        else:
+            # Extract y, x coordinates of the agent's position
+            y, x = agent_position[0]
+            
 
-        # Extract y, x coordinates of the agent's position
-        y, x = agent_position
-        
-        
         cross_structure = np.full((3, 3, state.shape[2]), 0)  # Create a 3x3 structure with None values
 
         # Extract the content for each valid neighbor position

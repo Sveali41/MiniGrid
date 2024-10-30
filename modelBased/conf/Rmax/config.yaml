@@ -36,7 +36,7 @@ world_model:
 
 PPO:
   has_continuous_action_space: False
-  max_ep_len: 400  # max timesteps in one episode
+  max_ep_len: 1000  # max timesteps in one episode
   action_std: 0.1  # set same std for action distribution which was used while saving
   i_episode: 0
   K_epochs: 80  # update policy for K epochs
@@ -44,18 +44,12 @@ PPO:
   gamma: 0.99  # discount factor
   lr_actor: 0.0003  # learning rate for actor
   lr_critic: 0.001  # learning rate for critic
-  checkpoint_path: ${oc.env:PTH_FOLDER}/policy_model.ckpt
+  checkpoint_path: ${oc.env:PTH_FOLDER}/policy_model_Rmax.ckpt
   time_step: 0
-  max_training_timesteps: 1.2e5
+  max_training_timesteps: 5.2e5
   # max_training_timesteps: 3e5
   action_std_decay_freq: 2.5e5
   action_std_decay_rate: 0.05
   min_action_std: 0.1
   save_model_freq: 2e4
   render: True
-
-test_env:
-  visualize: False
-  time_limit: 256 #max number of steps for each rollout 600
-  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 #MiniGrid-Empty-5x5-v0 #MiniGrid-Empty-8x8-v0 #MiniGrid-Empty-Random-6x6-v0 
-  n_rollouts: 1000

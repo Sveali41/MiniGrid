@@ -25,17 +25,25 @@ class RMaxExploration:
         Otherwise, return the real reward.
 
         Args:
-            state (int): Current state.
+            state (array): Current state.
             action (int): Action taken.
             real_reward (float): The real reward observed from the environment.
 
         Returns:
             float: R-max reward or real reward depending on visit count.
         """
-        if self.visit_count[state, action] < self.exploration_threshold:
-            return self.R_max  # Return maximum reward if not explored enough
+        state = tuple(state.flatten()) if isinstance(state, np.ndarray) else state.flatten()
+        key = (state, action)  # Define the key as the state-action pair
+
+        # If the key does not exist, treat it as unexplored
+        if key not in self.visit_count:
+            self.visit_count[key] = 0  # Initialize visit count for the new state-action pair
+
+        # Return R_max if the state-action pair is underexplored
+        if self.visit_count[key] < self.exploration_threshold:
+            return self.R_max  # Return R_max for unexplored or underexplored pairs
         else:
-            return real_reward  # Use the actual reward after sufficient exploration
+            return real_reward  # Use actual reward if sufficiently explored
 
     def update_visit_count(self, state, action):
         """

@@ -30,7 +30,7 @@ else:
 
 def postprocess_delta_obs_batch(obs):
     # Round, convert to int, and reshape to (3, 3, 3)
-    obs = obs.round().int().view(3, 3, 3)
+    obs = obs.view(3, 3, 3)
     return obs
 
 def replace_values(source, target, position):
@@ -65,6 +65,17 @@ def replace_values(source, target, position):
         target[target_x, target_y] = source[dx, dy]
     
     return target
+
+def map_to_nearest_value_rmax(cfg, obs):
+    hparams = cfg
+    valid_values_obj = hparams.world_model.valid_values_obj
+    valid_values_color = hparams.world_model.valid_values_color
+    valid_values_state = hparams.world_model.valid_values_state
+    # Map each channel to the nearest valid value
+    obs[:, :, 0] = map_to_nearest_value(obs[:, :, 0], valid_values_obj)
+    obs[:, :, 1] = map_to_nearest_value(obs[:, :, 1], valid_values_color)
+    obs[:, :, 2] = map_to_nearest_value(obs[:, :, 2], valid_values_state)
+    return obs
 
 def collect_data_from_env(cfg, env, policy, Rmax):
     """
@@ -101,7 +112,7 @@ def train_world_model(cfg, data=None, model=None):
     # data
     dataloader = WMRLDataModule(hparams = hparams.world_model, data=data)
     # Get a single batch from the dataloader
-    # 
+    dataloader.setup()
     # dataloader.setup()dataloader_train = dataloader.train_dataloader()
     # dataloader_val = dataloader.val_dataloader()
     if model is None:
@@ -141,6 +152,7 @@ def policy_initialization(cfg, env):
     Returns:
         The initialized policy.
     """
+    
     # PPO hyperparameters
     lr_actor = cfg.PPO.lr_actor
     lr_critic = cfg.PPO.lr_critic
@@ -173,7 +185,11 @@ def update_policy_with_world_model(cfg, env, policy, R_max):
         The updated policy.
     """
     hparams = cfg
-        # PPO hyperparameters
+    use_wandb = True
+    # wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
+    if use_wandb == True:
+        wandb.init(project='WM_PPO_RMAX', entity='svea41')
+    # PPO hyperparameters
     start_time = datetime.now().replace(microsecond=0)
     action_std_decay_rate = cfg.PPO.action_std_decay_rate
     min_action_std = cfg.PPO.min_action_std
@@ -208,23 +224,25 @@ def update_policy_with_world_model(cfg, env, policy, R_max):
         current_ep_reward = 0
         for t in range(1, max_ep_len + 1):
             # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
-            if t==1:
-                agent_pos = np.argwhere(state[:, :, 0] == 10)
-                state_extract = extract_agent_cross_mask(state)
-                state_extract_norm = normalize(state_extract).to(device)
+            if t>1:
+                state = state.cpu().numpy()
+            agent_pos = np.argwhere(state[:, :, 0] == 10)
+            state_extract = extract_agent_cross_mask(state)
+            state_extract_norm = normalize(state_extract).to(device)
             # else:
             #     agent_pos = np.argwhere(state[:, :, 0] == 10)
             #     state_extract = extract_agent_cross_mask(state)
             #     state_extract_norm = normalize(state_extract).to(device)
-
             state_norm = normalize(state).to(device)
             action = policy.select_action(state_norm)
             delta_state = postprocess_delta_obs_batch(world_model(state_extract_norm, torch.tensor(action/hparams.world_model.action_norm_values).to(device).unsqueeze(0)))
             state_change = torch.tensor(state_extract).to(device) + delta_state
+            state_change = map_to_nearest_value_rmax(cfg, state_change)
             state_next = replace_values(state_change, torch.tensor(state).to(device), agent_pos[0])
             # obtain reward from the state representation & done
             done, reward = get_destination(state_next, t, max_ep_len, goal_position)
-            reward = R_max.get_rmax_reward(state_next, action, reward)
+            # use previous state(flatten without normalize) and action to get the R_max reward
+            reward = R_max.get_rmax_reward(state_extract, action, reward)
             # get the R_max value for the rewards
             # saving reward and is_terminals
             policy.buffer.rewards.append(reward)
@@ -272,6 +290,7 @@ def update_policy_with_world_model(cfg, env, policy, R_max):
 
         i_episode += 1
 
+    wandb.finish()
     env.close()
 
 
@@ -290,7 +309,7 @@ def training_agent_with_rmax(cfg: DictConfig):
     env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="Find the key "
                                                                                       "and open the "
                                                                                       "door.",
-                        max_steps=20000, render_mode='human'))
+                        max_steps=20000, render_mode=None))
     num_iterations = cfg.R_max.num_iterations
     exploration_policy = policy_initialization(cfg, env)
     world_model = None  
