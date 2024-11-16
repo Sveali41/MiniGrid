@@ -23,7 +23,7 @@ world_model:
   hidden_size: 256 #hidden size
   data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz
   n_epochs: 50 # number of training epochs
-  obs_size: 27 # height * width * channels = 6 * 3 * 3
+  obs_size: 27 # the env for Rmax height * width * channels = 12 * 6 * 3
   lr: 1e-3
   wd: 1e-5
   pth_folder: ${oc.env:PTH_FOLDER}/Rmax/wm_rmax-epoch=41-avg_val_loss_wm=0.0006.ckpt

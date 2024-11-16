@@ -1,0 +1,26 @@
+attention_model:
+  obs_size: 216 # height * width * channels = 12 * 6 * 3
+  action_size: 1
+  batch_size: 64
+  n_cpu: 8
+  embed_dim : 128
+  num_heads : 8
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz
+  n_epochs: 100 # number of training epochs
+  lr: 1e-3
+  wd: 1e-5
+  model: None
+  # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
+  pth_folder: ${oc.env:PTH_FOLDER}/Transformer/attention_world_model.ckpt
+  obs_norm_values: [10, 5, 3]
+  action_norm_values: 6
+  valid_values_obj: [1, 2, 4, 5, 8, 10]
+  valid_values_color: [0, 1, 5]
+  valid_values_state: [0, 1, 2, 3]
+  use_wandb: False
+
+test_env:
+  visualize: False
+  time_limit: 256 #max number of steps for each rollout 600
+  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 #MiniGrid-Empty-5x5-v0 #MiniGrid-Empty-8x8-v0 #MiniGrid-Empty-Random-6x6-v0 
+  n_rollouts: 1000

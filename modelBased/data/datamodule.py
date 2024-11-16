@@ -71,7 +71,7 @@ class WMRLDataset(Dataset):
         else:
             self.data = self.make_data(loaded)
 
-    @func_set_timeout(100)
+    @func_set_timeout(1000)
     def make_data(self, loaded):
         obs = self.normalize(loaded['a'])
         obs_next = self.normalize(loaded['b'])

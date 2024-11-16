@@ -316,13 +316,13 @@ def training_agent_with_rmax(cfg: DictConfig):
     rmax_exploration = RMaxExploration(cfg.R_max.R_max, cfg.R_max.exploration_threshold)
     for _ in range(num_iterations):
         # # Step 1: collect env data from real env
-        # data = collect_data_from_env(cfg, env, exploration_policy, rmax_exploration)  
+        data = collect_data_from_env(cfg, env, exploration_policy, rmax_exploration)  
 
         # # Step 2: for iteration in range(num_iterations)
         # train_world_model(cfg)  
 
         # # Step 3: train PPO agent udpate policy with world model
-        exploration_policy = update_policy_with_world_model(cfg, env, exploration_policy, rmax_exploration)  
+        # exploration_policy = update_policy_with_world_model(cfg, env, exploration_policy, rmax_exploration)  
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
 def validate(cfg: DictConfig):
