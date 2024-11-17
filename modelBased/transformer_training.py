@@ -12,7 +12,7 @@ import wandb
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/transformer"), config_name="config")
 def train(cfg: DictConfig):
-    use_wandb = cfg.use_wandb
+    use_wandb = cfg.attention_model.use_wandb
     hparams = cfg
     # data
     dataloader = WMRLDataModule(hparams=hparams.attention_model)

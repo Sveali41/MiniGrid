@@ -1,13 +1,13 @@
 attention_model:
   obs_size: 216 # height * width * channels = 12 * 6 * 3
   action_size: 1
-  batch_size: 64
+  batch_size: 128  # 测试64， 因为数据量足够， 后续考虑128 或 256
   n_cpu: 8
-  embed_dim : 128
-  num_heads : 8
+  embed_dim : 64  # 任务简单 64维足够了
+  num_heads : 1   # embed维度低， 所以2个头也够用. 2个头效果不错， 尝试一个头
   data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz
-  n_epochs: 100 # number of training epochs
-  lr: 1e-3
+  n_epochs: 50 # number of training epochs
+  lr: 1e-4
   wd: 1e-5
   model: None
   # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
@@ -18,6 +18,11 @@ attention_model:
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
   use_wandb: False
+  # plot
+  visualizationFlag: true  # whether to visualize the attention map
+  visualize_every: 1500  # visualize the attention map every n steps
+  save_path: ${oc.env:PTH_FOLDER}/AttentionVisulization # save path of attention heatmap
+  action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
 
 test_env:
   visualize: False

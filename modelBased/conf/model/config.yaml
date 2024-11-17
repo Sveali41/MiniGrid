@@ -33,6 +33,7 @@ world_model:
   valid_values_obj: [1, 2, 4, 5, 8, 10]
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
+  model: None
 
 PPO:
   has_continuous_action_space: False

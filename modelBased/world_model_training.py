@@ -178,5 +178,5 @@ def map_obs_to_nearest_value(cfg, obs):
     return obs_denorm
 
 if __name__ == "__main__":
-    validate()
-    # train()
+    # validate()
+    train()
