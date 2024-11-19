@@ -1,10 +1,10 @@
 attention_model:
   obs_size: 216 # height * width * channels = 12 * 6 * 3
   action_size: 1
-  batch_size: 128  # 测试64， 因为数据量足够， 后续考虑128 或 256
+  batch_size: 128  # test 64/128/256
   n_cpu: 8
-  embed_dim : 64  # 任务简单 64维足够了
-  num_heads : 1   # embed维度低， 所以2个头也够用. 2个头效果不错， 尝试一个头
+  embed_dim : 64  # 64/128/256
+  num_heads : 1   # if the embed_dim is 64, num_heads should be 1
   data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz
   n_epochs: 50 # number of training epochs
   lr: 1e-4

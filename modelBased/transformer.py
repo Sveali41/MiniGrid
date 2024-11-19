@@ -131,7 +131,7 @@ class IntegratedModel(nn.Module):
         plt.tight_layout()
         os.makedirs(self.save_path, exist_ok=True)
         save_file = os.path.join(self.save_path, f"visualization_step_{step_counter}.png")
-        plt.savefig(save_file)  # 保存图像到指定路径
+        plt.savefig(save_file)  
         plt.close()
         # print(f"Visualization saved to {save_file}")
 
@@ -257,7 +257,7 @@ class IntegratedPredictionModel(pl.LightningModule):
         plt.tight_layout()
         os.makedirs(self.save_path, exist_ok=True)
         save_file = os.path.join(self.save_path, f"Obs_Vs_Predicetion_{step_counter}.png")
-        plt.savefig(save_file)  # 保存图像到指定路径
+        plt.savefig(save_file)  # save the figure to file
         plt.close()
 
 
