@@ -8,6 +8,7 @@ from typing import Tuple, List, Any, Dict, Optional
 import os.path
 # import src.env.run_env_save as env_run_save
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import multiprocessing
 import time
@@ -73,8 +74,32 @@ class WMRLDataset(Dataset):
 
     @func_set_timeout(1000)
     def make_data(self, loaded):
+
+        # ## test date
+        # for i in range(50):
+        #     obs = loaded['a'][i,:,:,:]
+        #     obs_next = loaded['b'][i,:,:,:]
+        #     plt.figure(figsize=(14, 8)) 
+        #     plt.subplot(2, 3, 1)  
+        #     plt.imshow(obs[:,:,0])
+        #     plt.subplot(2, 3, 4)  
+        #     plt.imshow(obs_next[:,:,0])
+
+        #     plt.subplot(2, 3, 2)  
+        #     plt.imshow(obs[:,:,1])
+        #     plt.subplot(2, 3, 5)  
+        #     plt.imshow(obs_next[:,:,1])
+
+        #     plt.subplot(2, 3, 3)  
+        #     plt.imshow(obs[:,:,2])
+        #     plt.subplot(2, 3, 6)  
+        #     plt.imshow(obs_next[:,:,2])
+        #     plt.show()
+        #     plt.close()
+
         obs = self.normalize(loaded['a'])
         obs_next = self.normalize(loaded['b'])
+
         act = loaded['c'].astype(np.float32) / self.act_norm_values # Normalize the action with the max 6
         # done = loaded['d'].astype(int)  # Convert boolean values to binary 0-1
 

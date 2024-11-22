@@ -1,4 +1,4 @@
-from transformer import IntegratedPredictionModel
+from transformer_copy import IntegratedPredictionModel
 from data.datamodule import WMRLDataModule
 from modelBased.common.utils import PROJECT_ROOT, get_env
 import hydra

@@ -24,12 +24,6 @@ class ExtractionModule(nn.Module):
 
 
     def forward(self, state, action):
-        ## ********* Move this Part to the IntegratedModel for visualization 2024_11_17 **********
-        # batch_size = state.size(0)
-        # stateTemp = state.view(batch_size, 12, 6, 3)  # convert to (batch_size, width, height, channels)
-        # state = stateTemp.permute(0, 3, 2, 1)
-        ## ***************************************************************************************
-        batch_size = state.size(0)
         state_embed = self.conv(state)  # (batch_size, embed_dim, grid_height, grid_width)
         state_embed = state_embed.flatten(2).permute(0, 2, 1)  # (128, 72, 62)
 
@@ -72,70 +66,19 @@ class IntegratedModel(nn.Module):
     """
     integrate extraction module and prediction module
     """
-    def __init__(self, state_dim, action_dim, embed_dim, num_heads, visualizationFlag=False, visualize_every=1000, save_path='', action_map={}):
+    def __init__(self, state_dim, action_dim, embed_dim, num_heads):
         super(IntegratedModel, self).__init__()
         self.extraction_module = ExtractionModule(action_dim, embed_dim, num_heads)
         self.prediction_module = PredictionModule(embed_dim, state_dim)
-        self.visualizationFlag = visualizationFlag
-        self.visualize_every = visualize_every  # visualize every 1000 steps
-        self.save_path = save_path
-        self.action_map = action_map
 
-    def forward(self, state, action, step_counter):
+    def forward(self, state, action):
         # extract features from state and action
-        ## ********* Reshape date format from (batch_size, 12, 6, 3) to (batch_size, 3, 6, 12) 2024_11_17 **********
-        batch_size = state.size(0)
-        stateTemp = state.view(batch_size, 12, 6, 3)  # convert to (batch_size, width, height, channels)
-        state = stateTemp.permute(0, 3, 2, 1)
-        ## **********************************************************************************************************
         extracted_features, attentionWeight = self.extraction_module(state, action)
-
-
-        if self.visualizationFlag and step_counter % self.visualize_every == 0:
-            self.Visualization(state, attentionWeight, step_counter, action, self.action_map)
-        
         # predict next state from extracted features
         next_state_pred = self.prediction_module(extracted_features)
         
-        return next_state_pred
+        return next_state_pred, attentionWeight
     
-    def Visualization(self, state, attentionWeight, step_counter, action, action_map):
-        state_image = state[-1, 0, :, :].detach().cpu().numpy() * 10  # convert tensor to numpy
-        heat_map = attentionWeight[-1, :].reshape(6, 12).detach().cpu().numpy()  #  convert tensor to numpy
-
-        plt.figure(figsize=(18, 6)) 
-        num_colors = 13  # 灰度层级
-        custom_cmap = plt.cm.get_cmap('gray', num_colors)
-
-        plt.subplot(1, 3, 1)  
-        plt.imshow(state_image, cmap=custom_cmap, interpolation='nearest')
-        plt.colorbar(label='State Value')
-        plt.title(f"Original State & Action: {action_map[round(action[-1].item() * 6)]}")
-        plt.xlabel("Width (Columns)")
-        plt.ylabel("Height (Rows)")
-
-        plt.subplot(1, 3, 2)  
-        plt.imshow(heat_map, cmap='viridis', interpolation='nearest')
-        plt.colorbar(label='Attention Weight')
-        plt.title("Attention Heatmap")
-        plt.xlabel("Width (Columns)")
-        plt.ylabel("Height (Rows)")
-
-        plt.subplot(1, 3, 3)  
-        plt.imshow(state_image * heat_map, cmap='viridis', interpolation='nearest')  
-        plt.colorbar(label='Attention Overlay')
-        plt.title("State and Attention Overlay")
-        plt.xlabel("Width (Columns)")
-        plt.ylabel("Height (Rows)")
-
-        plt.tight_layout()
-        os.makedirs(self.save_path, exist_ok=True)
-        save_file = os.path.join(self.save_path, f"visualization_step_{step_counter}.png")
-        plt.savefig(save_file)  
-        plt.close()
-        # print(f"Visualization saved to {save_file}")
-
-
 
 class IntegratedPredictionModel(pl.LightningModule):
     def __init__(self, hparams):
@@ -146,12 +89,15 @@ class IntegratedPredictionModel(pl.LightningModule):
         self.num_heads = hparams.num_heads
         self.learning_rate= hparams.lr
         self.weight_decay = hparams.wd
-        self.visualizationFlag = hparams.visualizationFlag
+        self.visualization_seperate = hparams.visualization_seperate
+        self.visualization_together = hparams.visualization_together
         self.visualize_every = hparams.visualize_every
         self.save_path = hparams.save_path
         self.step_counter = 0  # init step counter 
         self.action_map = hparams.action_map 
-        self.model = IntegratedModel(self.state_dim, self.action_dim, self.embed_dim, self.num_heads, self.visualizationFlag, self.visualize_every, self.save_path, self.action_map)
+        if self.visualization_together:
+            self.visualization_seperate = False
+        self.model = IntegratedModel(self.state_dim, self.action_dim, self.embed_dim, self.num_heads)
         self.criterion = nn.MSELoss()
 
 
@@ -159,17 +105,12 @@ class IntegratedPredictionModel(pl.LightningModule):
         """
         Forward pass: Get next state prediction and attention weights
         """
-        self.step_counter += 1
-        next_state_pred = self.model(state, action, self.step_counter)
-        return next_state_pred
+        next_state_pred, attentionWeight = self.model(state, action)
+        return next_state_pred, attentionWeight
 
     def loss_function(self, next_observations_predict, next_observations_true):
         loss = nn.MSELoss()
         loss_obs = loss(next_observations_predict, next_observations_true)
-        
-        if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
-            self.Visualization(next_observations_true, next_observations_predict, self.step_counter)
-
         loss = {'loss_obs':loss_obs}
         return loss
     
@@ -188,30 +129,50 @@ class IntegratedPredictionModel(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
+        ## load data
         obs = batch['obs']
-        # import matplotlib.pyplot as plt
-        # for i in range(64):
-        #     plt.imshow(obs[i, :].reshape(12, 6, 3)[:,:,0].cpu().numpy())
-        #     plt.show()
-        #     plt.close()
         act = batch['act']
-        obs_pred = self(obs, act)
         obs_next = batch['obs_next']
+
+        ## Reshape date format from (batch_size, 12, 6, 3) to (batch_size, 3, 6, 12) 
+        obs_temp = obs.view(obs.size(0), 12, 6, 3)  # convert to (batch_size, width, height, channels)
+        obs = obs_temp.permute(0, 3, 2, 1)  # convert to (batch_size, channels, height, width)
         obs_next_temp = obs_next.view(obs_next.shape[0], 12, 6, 3)   # convert to (batch_size, width, height, channels)
-        obs_next = obs_next_temp.permute(0, 3, 2, 1).flatten(start_dim=1)
+        obs_next = obs_next_temp.permute(0, 3, 2, 1).flatten(start_dim=1) # convert to (batch_size, channels, height, width) then flatten
+
+        ## transform prediction
+        obs_pred, attentionWeight = self(obs, act)
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
+
+        ## calculate loss
         loss = self.loss_function(obs_pred, obs_next)
         self.log_dict(loss)
+
+        ## visualization
+        self.step_counter += 1
+        if (self.visualization_together or self.visualization_seperate )and self.step_counter % self.visualize_every == 0:
+            """
+            obs: curent state
+            action = action taken
+            attentionWeight = attention weight 
+            obs_next = next state
+            obs_pred = predicted next state
+            """
+            self.visualization(obs, act, attentionWeight, obs_next, obs_pred)
+
         return loss['loss_obs']
 
     def validation_step(self, batch, batch_idx):
         obs = batch['obs']
         act = batch['act']
-        obs_pred = self(obs, act)
         obs_next = batch['obs_next']
+        obs_temp = obs.view(obs.size(0), 12, 6, 3)  # convert to (batch_size, width, height, channels)
+        obs = obs_temp.permute(0, 3, 2, 1)  # convert to (batch_size, channels, height, width)
         obs_next_temp = obs_next.view(obs_next.shape[0], 12, 6, 3)  # convert to (batch_size, width, height, channels)
         obs_next = obs_next_temp.permute(0, 3, 2, 1).flatten(start_dim=1)
+
+        obs_pred, _ = self(obs, act)
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
@@ -230,35 +191,82 @@ class IntegratedPredictionModel(pl.LightningModule):
         t = checkpoint['state_dict']
         pass  # No specific filtering needed for a simple NN
 
-    def Visualization(self, nextObs, prediction, step_counter):
-        obs_next_temp = nextObs.view(nextObs.shape[0], 3, 6, 12)   # convert to (batch_size, width, height, channels)
+    def visualization(self, obs, act, attentionWeight, obs_next, obs_pred):
+        ## preporcessing data
+        state_image = obs[-1, 0, :, :].detach().cpu().numpy() * 10  # convert tensor to numpy
+        last_action = self.action_map[round(obs[-1, 2, :, :].detach().cpu().numpy().max() * 6)]
+        next_action = self.action_map[round(act[-1].item() * 6)]
+        heat_map = attentionWeight[-1, :].reshape(6, 12).detach().cpu().numpy()  #  convert tensor to numpy
 
+        obs_next_temp = obs_next.view(obs_next.shape[0], 3, 6, 12)   # convert to (batch_size, width, height, channels)
         obs_next = obs_next_temp[-1, 0, :, :].detach().cpu().numpy() * 10  # convert tensor to numpy
-        prediction = np.round(prediction[-1, :].reshape(3, 6, 12)[0, :, :].detach().cpu().numpy() * 10)  #  convert tensor to numpy
+        obs_pred = np.round(obs_pred[-1, :].reshape(3, 6, 12)[0, :, :].detach().cpu().numpy() * 10)  #  convert tensor to numpy
 
-        plt.figure(figsize=(12, 6)) 
-
-        num_colors =  13 # 灰度层级
+        num_colors = 13 
         custom_cmap = plt.cm.get_cmap('gray', num_colors)
-        plt.subplot(1, 2, 1)  
-        plt.imshow(obs_next, cmap=custom_cmap, interpolation='nearest')
-        plt.colorbar(label='Next State')
+        ## visualization
+        if self.visualization_seperate:
+            plt.figure(figsize=(18, 6)) 
+            plt.subplot(1, 3, 1)  
+        else:
+            plt.figure(figsize=(18, 10)) 
+            plt.subplot(2, 3, 1)  
+        obs_fig =plt.imshow(state_image, cmap=custom_cmap, interpolation='nearest')
+        plt.colorbar(obs_fig, shrink=0.48, label='State Value')
+        plt.title(f"State   Last Action: {last_action}   Next Action: {next_action}")
+
+        if self.visualization_seperate:
+            plt.subplot(1, 3, 2)  
+        else:
+            plt.subplot(2, 3, 4)  
+        weight = plt.imshow(heat_map, cmap='viridis', interpolation='nearest')
+        plt.colorbar(weight, shrink=0.48, label='Attention Weight')
+        plt.title("Attention Heatmap")
+
+        if self.visualization_seperate:
+            plt.subplot(1, 3, 3)  
+
+        else:
+            plt.subplot(2, 3, 6)  
+        overlay = plt.imshow(state_image * heat_map, cmap='viridis', interpolation='nearest')  
+        plt.colorbar(overlay, shrink=0.48, label='Attention Overlay')
+        plt.title("State and Attention Overlay")
+
+        if self.visualization_seperate:
+            plt.tight_layout()
+            save_file = os.path.join(self.save_path, f"visualization_step_{self.step_counter}.png")
+            plt.savefig(save_file)  
+            plt.close()
+
+        if self.visualization_seperate:
+            plt.figure(figsize=(12, 6)) 
+            plt.subplot(1, 2, 1)  
+
+        else:
+            plt.subplot(2, 3, 2)  
+        
+        next = plt.imshow(obs_next, cmap=custom_cmap, interpolation='nearest')
+        plt.colorbar(next, shrink=0.48, label='Next State')
         plt.title("Next State")
-        plt.xlabel("Width (Columns)")
-        plt.ylabel("Height (Rows)")
 
-        plt.subplot(1, 2, 2)  
-        plt.imshow(prediction, cmap=custom_cmap, interpolation='nearest')
-        plt.colorbar(label='Predicted State')
+        if self.visualization_seperate:
+            plt.subplot(1, 2, 2)  
+
+        else:
+            plt.subplot(2, 3, 5)  
+        
+        prefig = plt.imshow(obs_pred, cmap=custom_cmap, interpolation='nearest')
+        plt.colorbar(prefig, shrink=0.48, label='Predicted State')
         plt.title("Predicted State")
-        plt.xlabel("Width (Columns)")
-        plt.ylabel("Height (Rows)")
-
         plt.tight_layout()
-        os.makedirs(self.save_path, exist_ok=True)
-        save_file = os.path.join(self.save_path, f"Obs_Vs_Predicetion_{step_counter}.png")
+
+        if self.visualization_seperate:
+            save_file = os.path.join(self.save_path, f"Obs_Vs_Predicetion_{self.step_counter}.png")
+        else:
+            save_file = os.path.join(self.save_path, f"Obs_Attention_{self.step_counter}.png")
         plt.savefig(save_file)  # save the figure to file
         plt.close()
+    
 
 
 def extract_topk_regions(state, attention_weights, topk=5):
