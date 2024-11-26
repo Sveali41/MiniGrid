@@ -134,6 +134,7 @@ class WMRLDataset(Dataset):
             # 'done': done
         }
         return data
+        
 
     def normalize(self, x):
         """Normalize the obs data and flatten it."""

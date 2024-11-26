@@ -19,36 +19,38 @@ class ExtractionModule(nn.Module):
 
     def forward(self, state, action):
         # agent_position = torch.argwhere(state[:, :, :, ] == 1)[:,1:]
-        state_embed = self.state_embedding(state).unsqueeze(1)  # (batch_size, 12*6, embed_dim)
+        state_embed = self.state_embedding(state) # (batch_size, 12*6, embed_dim)
 
         # state_embed = torch.cat([state_embed, position_embedding_expanded], dim=-1)  # (128, 72, 64)
 
         # action embedding
         action_embed = self.action_embedding(action.unsqueeze(1)).unsqueeze(1)  # (128, 1, 62)
+        # concatenate state and action embeddings
 
         # attention mechanism
         attention_output, attention_weights = self.attention(query=action_embed, key=state_embed, value=state_embed)
         return attention_output.squeeze(1), attention_weights.squeeze(1)
 
 class PredictionModule(nn.Module):
-    def __init__(self, embed_dim, state_dim, hidden_dim=128):
+    def __init__(self, embed_dim, state_dim, hidden_dim=72):
         super(PredictionModule, self).__init__()
+        # Input dimension is `embed_dim`, which will match the flattened input size
         self.fc1 = nn.Linear(embed_dim, hidden_dim)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.bn2 = nn.BatchNorm1d(hidden_dim)
-        # self.dropout2 = nn.Dropout(0.3)
-        self.fc3 = nn.Linear(hidden_dim, state_dim)
+        self.fc3 = nn.Linear(hidden_dim, 216)  # Output dimension = state_dim (216)
 
     def forward(self, extracted_features):
         x = self.fc1(extracted_features)
         x = self.bn1(x)
         x = torch.nn.functional.relu(x)
         x = self.fc2(x)
-        output = self.bn2(x)
+        x = self.bn2(x)
         x = torch.nn.functional.relu(x)
-        output = self.fc3(x)
-        return torch.nn.functional.softplus(output)
+        output = self.fc3(x)  # Output shape: [batch_size, 216]
+        
+        return torch.nn.functional.softplus(output)  # Apply softplus activation
 
 class IntegratedModel(nn.Module):
     """
@@ -119,6 +121,7 @@ class IntegratedPredictionModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         ## load data
         obs = batch['obs']
+        obs = self.data_preprocess(obs)
         act = batch['act']
         obs_next = batch['obs_next']
 
@@ -147,10 +150,9 @@ class IntegratedPredictionModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         obs = batch['obs']
+        obs = self.data_preprocess(obs)
         act = batch['act']
         obs_next = batch['obs_next']
-        
-
         obs_pred, _ = self(obs, act)
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
@@ -171,15 +173,15 @@ class IntegratedPredictionModel(pl.LightningModule):
         pass  # No specific filtering needed for a simple NN
 
     def visualization(self, obs, act, attentionWeight, obs_next, obs_pred):
-        ## preporcessing data
-        state_image = obs[-1, 0, :, :].detach().cpu().numpy() * 10  # convert tensor to numpy
-        last_action = self.action_map[round(obs[-1, 2, :, :].detach().cpu().numpy().max() * 6)]
+            ## preporcessing data
+        direction = obs[-1, self.pos[-1], 2].item() * 3
+        state_image = obs[-1, :, 0].view(12,6).detach().cpu().numpy() * 10  # convert tensor to numpy
         next_action = self.action_map[round(act[-1].item() * 6)]
-        heat_map = attentionWeight[-1, :].reshape(6, 12).detach().cpu().numpy()  #  convert tensor to numpy
+        heat_map = attentionWeight[-1, :].reshape(12, 6).detach().cpu().numpy()  #  convert tensor to numpy
 
-        obs_next_temp = obs_next.view(obs_next.shape[0], 3, 6, 12)   # convert to (batch_size, width, height, channels)
-        obs_next = obs_next_temp[-1, 0, :, :].detach().cpu().numpy() * 10  # convert tensor to numpy
-        obs_pred = np.round(obs_pred[-1, :].reshape(3, 6, 12)[0, :, :].detach().cpu().numpy() * 10)  #  convert tensor to numpy
+        obs_next_temp = obs_next.view(obs_next.shape[0], 12, 6, 3)   # convert to (batch_size, width, height, channels)
+        obs_next = obs_next_temp[-1, :, :, 0].detach().cpu().numpy() * 10  # convert tensor to numpy
+        obs_pred = np.round(obs_pred[-1, :].reshape(12, 6, 3)[:, :, 0].detach().cpu().numpy() * 10)  #  convert tensor to numpy
 
         num_colors = 13 
         custom_cmap = plt.cm.get_cmap('gray', num_colors)
@@ -190,15 +192,15 @@ class IntegratedPredictionModel(pl.LightningModule):
         else:
             plt.figure(figsize=(18, 10)) 
             plt.subplot(2, 3, 1)  
-        obs_fig =plt.imshow(state_image, cmap=custom_cmap, interpolation='nearest')
+        obs_fig =plt.imshow((state_image.T), cmap=custom_cmap, interpolation='nearest')
         plt.colorbar(obs_fig, shrink=0.48, label='State Value')
-        plt.title(f"State   Last Action: {last_action}   Next Action: {next_action}")
+        plt.title(f"State   Dir: {direction}   Action: {next_action}")
 
         if self.visualization_seperate:
             plt.subplot(1, 3, 2)  
         else:
             plt.subplot(2, 3, 4)  
-        weight = plt.imshow(heat_map, cmap='viridis', interpolation='nearest')
+        weight = plt.imshow(heat_map.T, cmap='viridis', interpolation='nearest')
         plt.colorbar(weight, shrink=0.48, label='Attention Weight')
         plt.title("Attention Heatmap")
 
@@ -207,7 +209,7 @@ class IntegratedPredictionModel(pl.LightningModule):
 
         else:
             plt.subplot(2, 3, 6)  
-        overlay = plt.imshow(state_image * heat_map, cmap='viridis', interpolation='nearest')  
+        overlay = plt.imshow((state_image * heat_map).T, cmap='viridis', interpolation='nearest')  
         plt.colorbar(overlay, shrink=0.48, label='Attention Overlay')
         plt.title("State and Attention Overlay")
 
@@ -224,7 +226,7 @@ class IntegratedPredictionModel(pl.LightningModule):
         else:
             plt.subplot(2, 3, 2)  
         
-        next = plt.imshow(obs_next, cmap=custom_cmap, interpolation='nearest')
+        next = plt.imshow(obs_next.T, cmap=custom_cmap, interpolation='nearest')
         plt.colorbar(next, shrink=0.48, label='Next State')
         plt.title("Next State")
 
@@ -234,7 +236,7 @@ class IntegratedPredictionModel(pl.LightningModule):
         else:
             plt.subplot(2, 3, 5)  
         
-        prefig = plt.imshow(obs_pred, cmap=custom_cmap, interpolation='nearest')
+        prefig = plt.imshow(obs_pred.T, cmap=custom_cmap, interpolation='nearest')
         plt.colorbar(prefig, shrink=0.48, label='Predicted State')
         plt.title("Predicted State")
         plt.tight_layout()
@@ -245,7 +247,27 @@ class IntegratedPredictionModel(pl.LightningModule):
             save_file = os.path.join(self.save_path, f"Obs_Attention_{self.step_counter}.png")
         plt.savefig(save_file)  # save the figure to file
         plt.close()
+        
     
+    def data_preprocess(self, state):
+        """
+        concat agent position to state
+        """
+        reshaped_tensor = state.view(-1, 12, 6, 3)
+        batch_size = reshaped_tensor.size(0)
+        reshaped_tensor = state.view(batch_size, -1, 3)
+        # agent_postion embedding
+        agent_position = torch.argwhere(reshaped_tensor[:, :, 0] == 1)[:, 1:]
+        self.pos = agent_position
+        # convert to one-hot
+        # position_embedding = torch.zeros((batch_size, 72, 1)).cuda()
+        # position_embedding[torch.arange(batch_size).unsqueeze(1), agent_position] = 1
+        position_values = torch.arange(1, 73).view(72, 1)  # 形状 [72, 1]
+
+        # 扩展到 [128, 72, 1]
+        position_embedding = position_values.unsqueeze(0).repeat(batch_size, 1, 1).cuda() # 形状 [128, 72, 1]
+        reshaped_state = torch.cat([reshaped_tensor, position_embedding], dim=2)
+        return reshaped_tensor
 
 
 def extract_topk_regions(state, attention_weights, topk=5):

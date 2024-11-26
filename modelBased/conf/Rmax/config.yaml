@@ -14,7 +14,7 @@ data_collect:
     visit_count: ${oc.env:TRAIN_DATASET_PATH}/visit_count_Rmax.npz # folder where to save the rollouts
 
 world_model:
-  model: 'Rmax'
+  model: 'Rmax'   # 'Rmax' or 'Attention'
   map_width: 3
   map_height: 3 # for this version, extract the square position centered at the agent 
   action_size: 1 # dimension of the action space
@@ -26,6 +26,7 @@ world_model:
   obs_size: 27 # the env for Rmax height * width * channels = 12 * 6 * 3
   lr: 1e-3
   wd: 1e-5
+  attention_model: ${oc.env:PTH_FOLDER}/Transformer/attention_world_model.ckpt
   pth_folder: ${oc.env:PTH_FOLDER}/Rmax/wm_rmax-epoch=41-avg_val_loss_wm=0.0006.ckpt
   # pth_folder: ${oc.env:PTH_FOLDER}/Rmax/world_model_Rmax.ckpt
   obs_norm_values: [10, 5, 3]

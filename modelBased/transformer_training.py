@@ -1,4 +1,4 @@
-from transformer_copy import IntegratedPredictionModel
+from transformer_copy_2 import IntegratedPredictionModel
 from data.datamodule import WMRLDataModule
 from modelBased.common.utils import PROJECT_ROOT, get_env
 import hydra
@@ -35,7 +35,7 @@ def train(cfg: DictConfig):
         save_top_k=1,
         monitor=metric_to_monitor,
         mode="min",
-        dirpath=hparams.attention_model.pth_folder,
+        dirpath=get_env('ATT_FOLDER'),
         filename="att-{epoch:02d}-{avg_val_loss_wm:.4f}",
         verbose=True
     )

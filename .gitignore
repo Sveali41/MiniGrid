@@ -8,3 +8,6 @@ __pycache__/
 
 # Ignore JetBrains IDE settings
 .idea/
+
+# ignore visualisation files
+/modelBased/models/ckpt/AttentionVisualisation/

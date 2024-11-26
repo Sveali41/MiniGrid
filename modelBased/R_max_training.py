@@ -17,6 +17,7 @@ from PPO_world_training import get_destination, find_position
 from data_collect import *
 import wandb
 from data.datamodule import extract_agent_cross_mask
+from transformer_copy_2 import *
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -93,7 +94,25 @@ def collect_data_from_env(cfg, env, policy, Rmax):
     # save count of the visit
     Rmax.save_count(cfg.collect.visit_count)
 
+def load_attention_model(cfg):
+    """
+    Load the attention model.
 
+    Parameters:
+        cfg: The configuration object.
+
+    Returns:
+        The loaded attention model.
+    """
+    hparams = cfg
+    model = IntegratedPredictionModel(hparams=hparams.attention_model)
+    # Load the checkpoint
+    checkpoint = torch.load(hparams.attention_model.pth_folder)
+    # Load state_dict into the model
+    model.load_state_dict(checkpoint['state_dict'])
+    # Set the model to evaluation mode (optional, depends on use case)
+    extraction_module = model.extraction_module
+    return extraction_module
 
 def train_world_model(cfg, data=None, model=None):
     """
@@ -316,10 +335,10 @@ def training_agent_with_rmax(cfg: DictConfig):
     rmax_exploration = RMaxExploration(cfg.R_max.R_max, cfg.R_max.exploration_threshold)
     for _ in range(num_iterations):
         # # Step 1: collect env data from real env
-        data = collect_data_from_env(cfg, env, exploration_policy, rmax_exploration)  
+        # data = collect_data_from_env(cfg, env, exploration_policy, rmax_exploration)  
 
-        # # Step 2: for iteration in range(num_iterations)
-        # train_world_model(cfg)  
+        # # Step 2: train world model (under abstracted features from attention model)
+        train_world_model(cfg)  
 
         # # Step 3: train PPO agent udpate policy with world model
         # exploration_policy = update_policy_with_world_model(cfg, env, exploration_policy, rmax_exploration)  
