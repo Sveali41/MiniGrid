@@ -17,7 +17,7 @@ from PPO_world_training import get_destination, find_position
 from data_collect import *
 import wandb
 from data.datamodule import extract_agent_cross_mask
-from transformer_copy_2 import *
+from modelBased.transformer6_best import *
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -104,8 +104,17 @@ def load_attention_model(cfg):
     Returns:
         The loaded attention model.
     """
+    # hparams = cfg
+    # model = ExtractionModule(hparams.attention_model.action_dim, hparams.attention_model.embed_dim, hparams.attention_model.num_heads)
+    # # Load the checkpoint
+    # checkpoint = torch.load(hparams.attention_model.pth_folder)
+    # # Load state_dict into the model
+    # model.load_state_dict(checkpoint['state_dict'])
+    # # Set the model to evaluation mode (optional, depends on use case)
+    # extraction_module = model.extraction_module
+
     hparams = cfg
-    model = IntegratedPredictionModel(hparams=hparams.attention_model)
+    model = IntegratedModel(hparams.attention_model.obs_size, hparams.attention_model.action_size, hparams.attention_model.embed_dim, hparams.attention_model.num_heads)
     # Load the checkpoint
     checkpoint = torch.load(hparams.attention_model.pth_folder)
     # Load state_dict into the model
@@ -128,19 +137,26 @@ def train_world_model(cfg, data=None, model=None):
         The trained world model.
     """
     hparams = cfg
+    use_wandb = cfg.world_model.use_wandb
     # data
     dataloader = WMRLDataModule(hparams = hparams.world_model, data=data)
     # Get a single batch from the dataloader
-    dataloader.setup()
+    # dataloader.setup()
     # dataloader.setup()dataloader_train = dataloader.train_dataloader()
     # dataloader_val = dataloader.val_dataloader()
     if model is None:
+        # this line is to check if we need to load the model and fine-tune it
         net = SimpleNN(hparams=hparams, model=True)
-    wandb_logger = WandbLogger(project="WM_Rmax", log_model=True)
-    wandb_logger.experiment.watch(net, log='all', log_freq=1000)
+    # Set up logger
+    wandb_logger = None
+    if use_wandb:
+        wandb_logger = WandbLogger(project="WM_Rmax", log_model=True)
+        wandb_logger.experiment.watch(net, log='all', log_freq=1000)
+    else:
+        print("Debug mode enabled. WandB logging is disabled.")
     # Define the trainer
     metric_to_monitor = 'avg_val_loss_wm'#"loss"
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=50, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=15, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
                             monitor = metric_to_monitor,
@@ -149,16 +165,17 @@ def train_world_model(cfg, data=None, model=None):
                             filename ="wm_rmax-{epoch:02d}-{avg_val_loss_wm:.4f}",
                             verbose = True
                         )
-    trainer = pl.Trainer(logger=wandb_logger,
+    trainer = pl.Trainer(logger=wandb_logger if use_wandb else None,
                     max_epochs=hparams.world_model.n_epochs, 
                     gpus=1,
                     callbacks=[early_stop_callback, checkpoint_callback])     
     # Start the training
     trainer.fit(net,dataloader)
-    # Log the trained model
-    model_pth = hparams.world_model.pth_folder
-    trainer.save_checkpoint(model_pth)
-    wandb.save(str(model_pth))
+    if use_wandb:
+        # Log the trained model only when wandb is used
+        model_pth = hparams.world_model.pth_folder
+        trainer.save_checkpoint(model_pth)
+        wandb.save(str(model_pth))
     return net
 
 def policy_initialization(cfg, env):

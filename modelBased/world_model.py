@@ -13,6 +13,7 @@ import numpy as np
 import pytorch_lightning as pl
 from typing import Sequence, List, Dict, Tuple, Optional, Any, Set, Union, Callable, Mapping
 import wandb
+from modelBased.transformer6_best import *
 
 class SimpleNN(pl.LightningModule):
     def __init__(self, hparams, model=False):
@@ -23,7 +24,14 @@ class SimpleNN(pl.LightningModule):
         self.n_hidden = hparams.hidden_size
         self.action_size = hparams.action_size
         self.total_input_size = self.obs_size + self.action_size
-        self.model = model
+        self.algo = hparams.model
+        self.visualizationFlag = hparams.visualizationFlag
+        self.visualize_every = hparams.visualize_every
+        self.save_path = hparams.save_path
+        self.step_counter = 0  # init step counter 
+        self.action_map = hparams.action_map 
+        self.direction_map = hparams.direction_map
+
         # # Define the first dense layer to process the combined input
         # self.shared_layers = nn.Sequential(
         #     nn.Linear(self.total_input_size, self.n_hidden),
@@ -35,42 +43,74 @@ class SimpleNN(pl.LightningModule):
         # )
         # # self.reward_head = nn.Linear(hidden_size, 1)
         # # self.done_head = nn.Linear(hidden_size, 1)
+        if self.algo == 'Attention':
+            self.topk = hparams.attention_model.topk
+            self.total_input_size = self.obs_size + self.action_size
+            self.extract_layer = self.load_attention_model(hparams.attention_model)
+            self.shared_layers = nn.Sequential(
+                nn.Linear(self.total_input_size, self.n_hidden),
+                nn.BatchNorm1d(self.n_hidden),  
+                nn.ReLU(),
+                nn.Linear(self.n_hidden, self.n_hidden),  # Added hidden layer
+                nn.ReLU()
+            )
+            self.state_head = nn.Sequential(
+                nn.Linear(self.n_hidden, self.obs_size),  # Added hidden layer
+                nn.ReLU()
+                # nn.Linear(self.n_hidden),
+                # nn.ReLU()
+            )
+            
+            self.state_head_Att = nn.Linear(self.n_hidden, 27) # predict the change centric of the agent
 
-        self.shared_layers = nn.Sequential(
-            nn.Linear(self.total_input_size, self.n_hidden),
-            nn.BatchNorm1d(self.n_hidden),  
-            nn.ReLU(),
-            nn.Linear(self.n_hidden, self.n_hidden),  # Added hidden layer
-            nn.ReLU()
-        )
+        else:
+            self.shared_layers = nn.Sequential(
+                nn.Linear(self.total_input_size, self.n_hidden),
+                nn.BatchNorm1d(self.n_hidden),  
+                nn.ReLU(),
+                nn.Linear(self.n_hidden, self.n_hidden),  # Added hidden layer
+                nn.ReLU()
+            )
 
-        self.state_head = nn.Sequential(
-            nn.Linear(self.n_hidden, self.obs_size),  # Added hidden layer
-            nn.ReLU()
-            # nn.Linear(self.n_hidden),
-            # nn.ReLU()
-        )
-        
-        self.state_head_Rmax = nn.Linear(self.n_hidden, self.obs_size)
+            self.state_head = nn.Sequential(
+                nn.Linear(self.n_hidden, self.obs_size),  # Added hidden layer
+                nn.ReLU()
+                # nn.Linear(self.n_hidden),
+                # nn.ReLU()
+            )
+            
+            self.state_head_Rmax = nn.Linear(self.n_hidden, self.obs_size)
 
 
     def forward(self, input_obs, input_action):
-        if input_obs.dim() == 1 and input_action.dim() == 1:
-            # Add a batch dimension to both inputs
-            input_obs = input_obs.unsqueeze(0)  # Shape becomes [1, 54]
-            input_action = input_action.unsqueeze(0)  # Shape becomes [1, 1]
-            combined_input = torch.cat((input_obs, input_action), dim=1)
+        if self.algo.lower() != 'Attention'.lower():
+            if input_obs.dim() == 1 and input_action.dim() == 1:
+                # Add a batch dimension to both inputs
+                input_obs = input_obs.unsqueeze(0)  # Shape becomes [1, 54]
+                input_action = input_action.unsqueeze(0)  # Shape becomes [1, 1]
+                combined_input = torch.cat((input_obs, input_action), dim=1)
+            else:
+                input_action = input_action.unsqueeze(1)
+                combined_input = torch.cat((input_obs, input_action), dim=1)
+            # Convert combined_input to Float if necessary
+            if combined_input.dtype != torch.float32:
+                combined_input = combined_input.float()
+            out = self.shared_layers(combined_input)
+            if self.algo=='Rmax':
+                obs_out = self.state_head_Rmax(out) 
+            else:
+                obs_out = self.state_head(out)
         else:
+            _, attention_weight = self.extract_layer(input_obs, input_action)
+            extracted_regions = self.extract_topk_regions(input_obs, attention_weight, self.topk) #(batch_size, 3 channel, 9topk)
+            extracted_regions = extracted_regions.view(extracted_regions.size(0), -1)
             input_action = input_action.unsqueeze(1)
-            combined_input = torch.cat((input_obs, input_action), dim=1)
-        # Convert combined_input to Float if necessary
-        if combined_input.dtype != torch.float32:
-            combined_input = combined_input.float()
-        out = self.shared_layers(combined_input)
-        if self.model:
-            obs_out = self.state_head_Rmax(out) 
-        else:
-            obs_out = self.state_head(out)
+            combined_input = torch.cat((extracted_regions, input_action), dim=1)  # Shape becomes [1, 1]
+            out = self.shared_layers(combined_input)
+            obs_out = self.state_head_Att(out)
+            # input the extracted feature to the model
+
+
         # reward_out = torch.sigmoid(self.reward_head(out))
         # done_out = self.done_head(out)
         #
@@ -81,11 +121,52 @@ class SimpleNN(pl.LightningModule):
         return obs_out
     
 
+    def load_attention_model(self, cfg):
+        """
+        Load the attention model.
+
+        Parameters:
+            cfg: The configuration object.
+
+        Returns:
+            The loaded attention model.
+        """
+        hparams = cfg
+        model = ExtractionModule(hparams.action_size, hparams.embed_dim, hparams.num_heads)
+        # Load the checkpoint
+        checkpoint = torch.load(hparams.pth_folder)
+        # Load state_dict into the model
+        model.load_state_dict(checkpoint['state_dict'])
+        # Set the model to evaluation mode (optional, depends on use case)
+        extraction_module = model
+        extraction_module.eval()
+        for param in extraction_module.parameters():
+            param.requires_grad = False # Freeze the model
+        return extraction_module
     
-    # def done_loss(self, predict, original):
-    #     predict = predict.view(-1, predict.shape[-1])
-    #     original = original.view(-1, original.shape[-1])
-    #     return F.mse_loss(predict, original, reduction='mean')
+    def extract_topk_regions(self, state, attention_weights, topk=9):
+        """
+        according to attention weights, extract top-k regions from state
+        :param state: state features, shape = (batch_size, seq_len, state_dim)
+        :param attention_weights: attention weights, shape = (batch_size, seq_len)
+        :param topk: number of regions to extract
+        :return: 
+            extracted_regions: extracted regions, shape = (batch_size, topk, state_dim)
+            topk_indices: selected indices, shape = (batch_size, topk)
+        """
+        # acquire top-k indices
+        batch_size = state.size(0)
+        _, topk_indices = torch.topk(attention_weights, topk, dim=1)  # (batch_size, topk)
+        state = state.permute(0, 2, 3, 1)
+        attention_weights = attention_weights.view(batch_size, state.size(1), state.size(2))
+        state = state.reshape(batch_size, -1, 3)
+        output_data = torch.zeros_like(state)
+        for i in range(batch_size):
+            for idx in topk_indices[i]:
+                output_data[i, idx] = state[i, idx]
+        return output_data
+
+
 
     def loss_function(self, next_observations_predict, next_observations_true):
         loss = nn.MSELoss()
@@ -110,17 +191,35 @@ class SimpleNN(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         obs = batch['obs']
         act = batch['act']
+        if self.algo == 'Attention':
+            obs_temp = obs.view(obs.size(0), 12, 6, 3)  # convert to (batch_size, width, height, channels)
+            obs = obs_temp.permute(0, 3, 2, 1)  # convert to (batch_size, channels, height, width)
         obs_pred = self(obs, act)
         obs_next = batch['obs_next']
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
         self.log_dict(loss)
+
+        # ## visualization
+        # self.step_counter += 1
+        # if self.visualizationFlag and (self.step_counter % self.visualize_every == 0):
+        #     """
+        #     obs: curent state
+        #     action = action taken
+        #     attentionWeight = attention weight 
+        #     obs_next = next state
+        #     obs_pred = predicted next state
+        #     """
+        #     self.visualization(obs, act, attention_weight)
         return loss['loss_obs']
 
     def validation_step(self, batch, batch_idx):
         obs = batch['obs']
         act = batch['act']
+        if self.algo == 'Attention':
+            obs_temp = obs.view(obs.size(0), 12, 6, 3)  # convert to (batch_size, width, height, channels)
+            obs = obs_temp.permute(0, 3, 2, 1)  # convert to (batch_size, channels, height, width)
         obs_pred = self(obs, act)
         obs_next = batch['obs_next']
         if obs_next.dtype != obs_pred.dtype:
@@ -140,3 +239,34 @@ class SimpleNN(pl.LightningModule):
         # Example checkpoint customization: removing specific keys if needed
         t = checkpoint['state_dict']
         pass  # No specific filtering needed for a simple NN
+
+    def visualization(self, obs, act, attentionWeight):
+        ## preporcessing data
+        state_image = obs[-1, 0, :, :].detach().cpu().numpy() * 10  # convert tensor to numpy
+        direction = self.direction_map[round(obs[-1, 2, :, :].detach().cpu().numpy().max() * 3)]
+        action = self.action_map[round(act[-1].item() * 6)]
+        heat_map = attentionWeight[-1, :].reshape(6, 12).detach().cpu().numpy()  #  convert tensor to numpy
+
+        num_colors = 13 
+        custom_cmap = plt.cm.get_cmap('gray', num_colors)
+        ## visualization
+
+        plt.figure(figsize=(8, 5)) 
+        plt.subplot(1, 2, 1)  
+        obs_fig =plt.imshow(state_image, cmap=custom_cmap, interpolation='nearest')
+        plt.colorbar(obs_fig, shrink=0.5, label='State Value')
+        plt.title(f"State   Dir: {direction}  Action: {action}")
+
+
+        plt.subplot(1, 2, 2)  
+        weight = plt.imshow(heat_map, cmap='viridis', interpolation='nearest')
+        plt.colorbar(weight, shrink=0.5, label='Attention Weight')
+        plt.title("Attention Heatmap")
+
+        save_file = os.path.join(self.save_path, f"AttentionCheck_{self.step_counter}.png")
+        plt.savefig(save_file)  # save the figure to file
+        plt.close()
+    
+
+
+

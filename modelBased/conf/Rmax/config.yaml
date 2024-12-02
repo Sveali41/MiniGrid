@@ -14,19 +14,18 @@ data_collect:
     visit_count: ${oc.env:TRAIN_DATASET_PATH}/visit_count_Rmax.npz # folder where to save the rollouts
 
 world_model:
-  model: 'Rmax'   # 'Rmax' or 'Attention'
+  model: 'Attention'   # 'Rmax' or 'Attention'
   map_width: 3
   map_height: 3 # for this version, extract the square position centered at the agent 
   action_size: 1 # dimension of the action space
   batch_size: 128
   n_cpu: 8
   hidden_size: 256 #hidden size
-  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation.npz
   n_epochs: 50 # number of training epochs
-  obs_size: 27 # the env for Rmax height * width * channels = 12 * 6 * 3
+  obs_size: 216 # the env for Rmax height * width * channels = 12 * 6 * 3
   lr: 1e-3
   wd: 1e-5
-  attention_model: ${oc.env:PTH_FOLDER}/Transformer/attention_world_model.ckpt
   pth_folder: ${oc.env:PTH_FOLDER}/Rmax/wm_rmax-epoch=41-avg_val_loss_wm=0.0006.ckpt
   # pth_folder: ${oc.env:PTH_FOLDER}/Rmax/world_model_Rmax.ckpt
   obs_norm_values: [10, 5, 3]
@@ -34,6 +33,44 @@ world_model:
   valid_values_obj: [1, 2, 4, 5, 8, 10]
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
+  use_wandb: False
+  ## params for attention model
+  visualizationFlag: True    # whether to visualize the attention map together with the observation
+  visualize_every: 1  # 1500 visualize the attention map every n steps
+  save_path: ${oc.env:PTH_FOLDER}/AttentionVisulization # save path of attention heatmap
+  direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
+  action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
+  
+  attention_model:
+    obs_size: 216 # 3 dimensions of state + position of agent
+    action_size: 1
+    batch_size: 256  # test 64/128/256
+    n_cpu: 8
+    embed_dim : 128  # 128 64/128/256
+    num_heads : 2   # 1 if the embed_dim is 64, num_heads should better be 1
+    data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation.npz
+    n_epochs: 50 # number of training epochs
+    lr: 1e-3
+    wd: 1e-5
+    model: None
+    # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
+    pth_folder: ${oc.env:PTH_FOLDER}/Transformer/extraction_module.ckpt
+    obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
+    action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
+    valid_values_obj: [1, 2, 4, 5, 8, 10]
+    valid_values_color: [0, 1, 5]
+    valid_values_state: [0, 1, 2, 3]
+    use_wandb: True
+    # plot
+    visualization_seperate: False  # whether to visualize the attention map
+    visualization_together: True    # whether to visualize the attention map together with the observation
+    visualize_every: 3000  # 1500 visualize the attention map every n steps
+    save_path: ${oc.env:PTH_FOLDER}/AttentionVisulization # save path of attention heatmap
+    direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
+    action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
+    topk: 9
+
+
 
 PPO:
   has_continuous_action_space: False

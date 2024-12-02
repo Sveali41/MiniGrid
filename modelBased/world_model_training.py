@@ -15,12 +15,8 @@ from pytorch_lightning.loggers.wandb import WandbLogger
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
+import wandb
 
-
-use_wandb = False
-if use_wandb:
-    import wandb
-    wandb.require("core")
 
 @hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
 def train(cfg: DictConfig):

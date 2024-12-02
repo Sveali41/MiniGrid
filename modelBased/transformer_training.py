@@ -1,13 +1,15 @@
-from transformer_copy_2 import IntegratedPredictionModel
+from transformer6_best import IntegratedPredictionModel
 from data.datamodule import WMRLDataModule
-from modelBased.common.utils import PROJECT_ROOT, get_env
+from common.utils import PROJECT_ROOT, get_env
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.loggers.wandb import WandbLogger
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping    
 from pytorch_lightning.callbacks import ModelCheckpoint
 import wandb
+import os
+import torch
 
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/transformer"), config_name="config")
@@ -16,10 +18,11 @@ def train(cfg: DictConfig):
     hparams = cfg
     # data
     dataloader = WMRLDataModule(hparams=hparams.attention_model)
+    # dataloader.setup()
 
     # Model initialization
     net = IntegratedPredictionModel(hparams=hparams.attention_model)
-
+ 
     # Set up logger
     wandb_logger = None
     if use_wandb:
@@ -30,7 +33,7 @@ def train(cfg: DictConfig):
 
     # Define the trainer
     metric_to_monitor = 'avg_val_loss_wm'
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=5, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
         save_top_k=1,
         monitor=metric_to_monitor,
@@ -48,11 +51,18 @@ def train(cfg: DictConfig):
 
     # Start the training
     trainer.fit(net, dataloader)
+
+    model_pth = hparams.attention_model.pth_folder
+    trainer.save_checkpoint(model_pth)
+    extraction_module_pth = os.path.join(get_env('ATT_FOLDER'), "extraction_module.ckpt")
+    torch.save({
+        'state_dict': net.model.extraction_module.state_dict()
+    }, extraction_module_pth)
+
+    
     if use_wandb:
-        # Log the trained model only when wandb is used
-        model_pth = hparams.attention_model.pth_folder
-        trainer.save_checkpoint(model_pth)
         wandb.save(str(model_pth))
+        wandb.save(extraction_module_pth)
         
 
 if __name__ == "__main__":

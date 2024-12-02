@@ -69,34 +69,13 @@ class WMRLDataset(Dataset):
         self.act_norm_values = hparams.action_norm_values
         if self.hparams.model == 'Rmax':
             self.data = self.make_data_Rmax(loaded)
+        if self.hparams.model == 'Attention':
+            self.data = self.make_data_attention(loaded)
         else:
             self.data = self.make_data(loaded)
 
     @func_set_timeout(1000)
     def make_data(self, loaded):
-
-        # ## test date
-        # for i in range(50):
-        #     obs = loaded['a'][i,:,:,:]
-        #     obs_next = loaded['b'][i,:,:,:]
-        #     plt.figure(figsize=(14, 8)) 
-        #     plt.subplot(2, 3, 1)  
-        #     plt.imshow(obs[:,:,0])
-        #     plt.subplot(2, 3, 4)  
-        #     plt.imshow(obs_next[:,:,0])
-
-        #     plt.subplot(2, 3, 2)  
-        #     plt.imshow(obs[:,:,1])
-        #     plt.subplot(2, 3, 5)  
-        #     plt.imshow(obs_next[:,:,1])
-
-        #     plt.subplot(2, 3, 3)  
-        #     plt.imshow(obs[:,:,2])
-        #     plt.subplot(2, 3, 6)  
-        #     plt.imshow(obs_next[:,:,2])
-        #     plt.show()
-        #     plt.close()
-
         obs = self.normalize(loaded['a'])
         obs_next = self.normalize(loaded['b'])
 
@@ -123,6 +102,26 @@ class WMRLDataset(Dataset):
         obs = self.normalize(obs)
         # output is the changes between the current state and the next state
         obs_delta = self.delta_batch_preprocess(loaded['a'], loaded['b'])
+        act = loaded['c'].astype(np.float32) / self.act_norm_values # Normalize the action with the max 6
+        # done = loaded['d'].astype(int)  # Convert boolean values to binary 0-1
+
+        # Create a dictionary to store processed data
+        data = {
+            'obs': obs,
+            'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
+            'act': act,
+            # 'done': done
+        }
+        return data
+    
+    def make_data_attention(self, loaded):
+        """
+        obs: same as normal
+        obs_next: the 3x3 square around the agent with delta change
+        """
+        obs = self.normalize(loaded['a']) # (batch_size, width*height*channels)
+        # output is the changes between the current state and the next state
+        obs_delta = self.delta_batch_preprocess(loaded['a'], loaded['b']) # (batch_size, 3*3*3)
         act = loaded['c'].astype(np.float32) / self.act_norm_values # Normalize the action with the max 6
         # done = loaded['d'].astype(int)  # Convert boolean values to binary 0-1
 

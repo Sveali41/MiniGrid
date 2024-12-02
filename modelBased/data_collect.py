@@ -93,7 +93,7 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
 
             # Select an action
             if policy is None:
-                act = np.random.choice(meaningful_actions, p=[0.5, 0.25, 0.25])  # Weighted random sampling
+                act = np.random.choice(meaningful_actions, p=[0.8, 0.1, 0.1])  # Weighted random sampling
             else:
                 state_norm = normalize(obs['image']).to(device)
                 act = policy.select_action(state_norm)
@@ -179,7 +179,7 @@ def data_augmentation(cfg: DictConfig, obs, obs_next, act, rew, done):
 @hydra.main(version_base=None, config_path = str(PROJECT_ROOT / "conf/env"), config_name="config")
 def data_collect(cfg: DictConfig):
     path = Paths()
-    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="Find the key "
+    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax2, custom_mission="Find the key "
                                                                                       "and open the "
                                                                                       "door.",
                                         max_steps=2000, render_mode=None))

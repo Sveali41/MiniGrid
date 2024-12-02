@@ -154,7 +154,9 @@ class CustomEnvFromFile(MiniGridEnv):
             # Randomly pick a position within the area
             x = np.random.randint(x1, x2 + 1)
             y = np.random.randint(y1, y2 + 1)
-            return (x, y)
+
+            if self.grid.get(x, y) is None:
+                return (x, y)
 
     def read_layout_from_file(self) -> None:
         """
