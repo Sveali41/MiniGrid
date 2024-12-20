@@ -45,7 +45,7 @@ class SimpleNN(pl.LightningModule):
         # # self.done_head = nn.Linear(hidden_size, 1)
         if self.algo == 'Attention':
             self.topk = hparams.attention_model.topk
-            self.total_input_size = self.obs_size + self.action_size
+            self.total_input_size = 4 * self.topk + self.action_size
             self.extract_layer = self.load_attention_model(hparams.attention_model)
             self.shared_layers = nn.Sequential(
                 nn.Linear(self.total_input_size, self.n_hidden),
@@ -102,7 +102,7 @@ class SimpleNN(pl.LightningModule):
                 obs_out = self.state_head(out)
         else:
             _, attention_weight = self.extract_layer(input_obs, input_action)
-            extracted_regions = self.extract_topk_regions_padding(input_obs, attention_weight, self.topk) #(batch_size, 3 channel, 9topk)
+            extracted_regions = self.extract_topk_regions_without_padding(input_obs, attention_weight, self.topk) #(batch_size, 3 channel, 9topk)
             extracted_regions = extracted_regions.view(extracted_regions.size(0), -1)
             input_action = input_action.unsqueeze(1)
             combined_input = torch.cat((extracted_regions, input_action), dim=1)  # Shape becomes [1, 1]
@@ -167,7 +167,15 @@ class SimpleNN(pl.LightningModule):
         return output_data
 
 
-    def extract_topk_regions_without_padding(state, attention_weights, topk=5):
+    def generate_positional_encoding(self, position, embed_dim):
+        position_encoding = torch.zeros(position.size(0), embed_dim, device=position.device)
+        for i in range(embed_dim // 2):
+            position_encoding[:, 2 * i] = torch.sin(position[:, 0] / (10000 ** (2 * i / embed_dim)))
+            position_encoding[:, 2 * i + 1] = torch.cos(position[:, 0] / (10000 ** (2 * i / embed_dim)))
+        return position_encoding
+
+
+    def extract_topk_regions_without_padding(self, state, attention_weights, topk=5):
         """
         according to attention weights, extract top-k regions from state
         :param state: state features, shape = (batch_size, seq_len, state_dim)
@@ -180,10 +188,19 @@ class SimpleNN(pl.LightningModule):
         # acquire top-k indices
         topk_values, topk_indices = torch.topk(attention_weights, topk, dim=1)  # (batch_size, topk)
 
-        # extract top-k regions
-        extracted_regions = torch.gather(state, dim=1, index=topk_indices.unsqueeze(-1).expand(-1, -1, state.size(-1)))
+        # acquire relative posistion
+        agent_position = torch.argwhere(state[:, 0, :, :] == 1)[:,1:]
+        agent_position_1d = agent_position[:, 0] * 12 + agent_position[:, 1]
+        relative_position = topk_indices- agent_position_1d.unsqueeze(1)
+        batch_size, channel, row, col = state.shape
+        relative_position = relative_position / (row * col - 1)  # normlization 
 
-        return extracted_regions, topk_indices
+        # topK regions
+        extracted_regions = torch.gather(state.flatten(2), dim=2, index=topk_indices.unsqueeze(1).expand(-1, channel, -1))
+
+        # topK regions + relative posistion
+        extracted_regions_position = torch.cat((extracted_regions, relative_position.unsqueeze(1)), dim=1)
+        return extracted_regions_position
 
 
 

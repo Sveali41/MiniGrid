@@ -7,16 +7,7 @@ from minigrid.minigrid_env import MiniGridEnv
 from path import *
 from PIL import Image, ImageDraw
 from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper
-
-ACTION_NAMES = {
-    0: 'Turn Left',
-    1: 'Turn Right',
-    2: 'Move Forward',
-    3: 'Pick Up',
-    4: 'Drop',
-    5: 'Toggle'
-}
-
+import numpy as np  # Ensure numpy is imported
 
 def char_to_color(char: str) -> Optional[str]:
     """
@@ -44,11 +35,17 @@ def char_to_object(char: str, color: str) -> Optional[WorldObj]:
         Optional[WorldObj]: The MiniGrid object corresponding to the character and color, or None if unrecognized.
     """
     obj_map = {
-        'W': lambda: Wall(), 'F': lambda: Floor(), 'B': lambda: Ball(color),
-        'K': lambda: Key(color), 'X': lambda: Box(color), 'D': lambda: Door(color, is_locked=True),
-        'G': lambda: Goal(), 'L': lambda: Lava(),'O': lambda: Door(color, is_locked=False)
+        'W': lambda: Wall(),
+        'F': lambda: Floor(),
+        'B': lambda: Ball(color),
+        'K': lambda: Key(color),
+        'X': lambda: Box(color),
+        'D': lambda: Door(color, is_locked=True),
+        'G': lambda: Goal(),
+        'L': lambda: Lava(),
+        'O': lambda: Door(color, is_locked=False)
     }
-    constructor = obj_map.get(char, None)
+    constructor = obj_map.get(char.upper(), None)
     return constructor() if constructor else None
 
 
@@ -80,40 +77,39 @@ class CustomEnvFromFile(MiniGridEnv):
         If 'size' is not specified, it determines the size based on the content of the given text file.
         """
         self.txt_file_path = txt_file_path
+        self.s_positions = []  # List to store positions of 'S'
+
         # Determine the size of the environment if not provided
-        self.height, self.width = self.determine_layout_size() if size is None else size
+        if size is None:
+            self.height, self.width = self.determine_layout_size()
+        else:
+            self.height, self.width = size, size  # Assume square grid if size is provided
+
         # Initialize the MiniGrid environment with the determined size
         super().__init__(
             mission_space=MissionSpace(mission_func=lambda: custom_mission),
-            # grid_size=self.layout_size,
             see_through_walls=False,
             max_steps=max_steps or 4 * self.width ** 2,
             width=self.width,
             height=self.height,
             **kwargs,
         )
-        # determine the starting position and direction of the agent
+
+        # Determine the starting position and direction of the agent
         self.rand_agent_start_pos = agent_start_pos is None
         self.agent_start_pos = agent_start_pos
         self.rand_agent_start_dir = agent_start_dir is None
         self.agent_start_dir = agent_start_dir
-        # mission or objects within the environment
+
+        # Mission or objects within the environment
         self.mission = custom_mission
 
-    # def reset(self, **kwargs):
-    #     """
-    #     Resets the environment for a new episode. If agent_start_dir was initially None,
-    #     it randomizes the agent's starting direction again.
-    #     """
-    #     # Proceed with the standard reset process
-    #     return super().reset(**kwargs)
-
-    def determine_layout_size(self) -> tuple[int, int]:
+    def determine_layout_size(self) -> Tuple[int, int]:
         """
         Reads the layout from the file to determine the environment's size based on its width and height.
 
         Returns:
-            int: The larger value between the height and width of the layout to ensure a square grid.
+            Tuple[int, int]: The height and width of the layout.
         """
         with open(self.txt_file_path, 'r') as file:
             sections = file.read().split('\n\n')
@@ -130,25 +126,41 @@ class CustomEnvFromFile(MiniGridEnv):
         self.grid = Grid(width, height)
         self.read_layout_from_file()
 
-        # Define the assigned area for the agent start (top-left (x1, y1), bottom-right (x2, y2))
-        x1, y1 = 5, 1
-        x2, y2 = 7, 4
+        # If 'S' positions are specified in the layout, use them as the agent's starting positions
+        if self.s_positions:
+            # For simplicity, use the first 'S' position as the agent's start
+            self.agent_start_pos = self.s_positions[0]
+            self.agent_dir = self.agent_start_dir if not self.rand_agent_start_dir else np.random.randint(0, 4)
+            self.agent_pos = self.agent_start_pos
+        else:
+            # Define the assigned area for the agent start (top-left (x1, y1), bottom-right (x2, y2))
+            x1, y1 = 5, 1
+            x2, y2 = 7, 4
 
-        # Randomly assign a starting position within the defined area
-        if self.rand_agent_start_pos:
-            self.agent_start_pos = self.find_empty_position_in_area(x1, y1, x2, y2)
+            # Randomly assign a starting position within the defined area
+            if self.rand_agent_start_pos:
+                self.agent_start_pos = self.find_empty_position_in_area(x1, y1, x2, y2)
 
-        # Set direction (could be random or predefined)
-        if self.rand_agent_start_dir:
-            self.agent_start_dir = np.random.randint(0, 4)
+            # Set direction (could be random or predefined)
+            if self.rand_agent_start_dir:
+                self.agent_start_dir = np.random.randint(0, 4)
 
-        # Set the agent's position and direction
-        self.agent_pos = self.agent_start_pos
-        self.agent_dir = self.agent_start_dir
+            # Set the agent's position and direction
+            self.agent_pos = self.agent_start_pos
+            self.agent_dir = self.agent_start_dir
 
-    def find_empty_position_in_area(self, x1, y1, x2, y2):
+    def find_empty_position_in_area(self, x1: int, y1: int, x2: int, y2: int) -> Tuple[int, int]:
         """
         Finds an empty position in the defined area (x1, y1) to (x2, y2).
+
+        Args:
+            x1 (int): Top-left x-coordinate.
+            y1 (int): Top-left y-coordinate.
+            x2 (int): Bottom-right x-coordinate.
+            y2 (int): Bottom-right y-coordinate.
+
+        Returns:
+            Tuple[int, int]: Coordinates of an empty position.
         """
         while True:
             # Randomly pick a position within the area
@@ -167,7 +179,8 @@ class CustomEnvFromFile(MiniGridEnv):
             if len(sections) != 2:
                 raise ValueError("File must contain exactly two sections separated by one empty line.")
 
-            layout_lines, color_lines = sections[0].strip().split('\n'), sections[1].strip().split('\n')
+            layout_lines = sections[0].strip().split('\n')
+            color_lines = sections[1].strip().split('\n')
 
             if len(layout_lines) != len(color_lines) or any(
                     len(layout) != len(color) for layout, color in zip(layout_lines, color_lines)):
@@ -175,17 +188,27 @@ class CustomEnvFromFile(MiniGridEnv):
 
             for y, (layout_line, color_line) in enumerate(zip(layout_lines, color_lines)):
                 for x, (char, color_char) in enumerate(zip(layout_line, color_line)):
+                    if char.upper() == 'S':
+                        # Record 'S' position as agent's start position
+                        self.s_positions.append((x, y))
+                        # Set 'S' as Floor with specified color
+                        color = char_to_color(color_char)
+                        obj = char_to_object(char, color)
+                        if color:
+                            obj.color = color
+                        self.grid.set(x, y, obj)
+                        continue  # 'S' is handled
                     color = char_to_color(color_char)
                     obj = char_to_object(char, color)
                     if obj:
                         self.grid.set(x, y, obj)  # Place the object on the grid
 
-    def find_empty_position(self) -> tuple[int, int]:
+    def find_empty_position(self) -> Tuple[int, int]:
         """
         Finds an empty position on the grid where there is no object.
 
         Returns:
-            tuple[int, int]: The coordinates of an empty position.
+            Tuple[int, int]: The coordinates of an empty position.
         """
         empty_positions = [(x, y) for x in range(self.width) for y in range(self.height)
                            if self.grid.get(x, y) is None]
@@ -199,11 +222,11 @@ class CustomEnvFromFile(MiniGridEnv):
 if __name__ == "__main__":
     # Example usage of the CustomEnvFromFile class
     path = Paths()
-    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax, custom_mission="Find the key "
-                                                                                      "and open the "
-                                                                                      "door.",
-                            render_mode="human"))
+    env = FullyObsWrapper(CustomEnvFromFile(
+        txt_file_path=path.LEVEL_FILE_Rmax,
+        custom_mission="Find the key and open the door.",
+        render_mode="human"
+    ))
     env.reset()
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
-

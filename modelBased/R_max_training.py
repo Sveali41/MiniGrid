@@ -19,6 +19,7 @@ import wandb
 from data.datamodule import extract_agent_cross_mask
 from modelBased.transformer6_best import *
 
+
 # set device to cpu or cuda
 device = torch.device('cpu')
 
@@ -34,36 +35,26 @@ def postprocess_delta_obs_batch(obs):
     obs = obs.view(3, 3, 3)
     return obs
 
-def replace_values(source, target, position):
+def replace_values(delta, target, position):
     """
-    Replace the values in target tensor with the values in source tensor.
+    Replace the values in target tensor with the values in delta tensor.
     
     Args:
-        source (torch.Tensor): Source tensor of shape (3, 3, 3).
+        delta (torch.Tensor): delta tensor of shape (3, 3, 3).
         target (torch.Tensor): Target tensor of shape (*, *, 3).
         position (tuple): Position (x, y) of the center in the target tensor.
         
     Returns:
-        torch.Tensor: The target tensor with values from the source tensor replaced at the specified position.
+        torch.Tensor: The target tensor with values from the delta tensor replaced at the specified position.
     """
-    # Check if the source tensor is of the correct shape
-    if source.shape != (3, 3, 3):
-        raise ValueError("source tensor must be of shape (3, 3, 3)")
+    # Check if the delta tensor is of the correct shape
+    if delta.shape != (3, 3, 3):
+        raise ValueError("delta tensor must be of shape (3, 3, 3)")
     
     # Get the center position in the target tensor
-    x, y = position
+    y, x = position
     
-    # Define relative positions to update around the center position
-    offsets = [(0, 1), (1, 1), (2, 1), (1, 0), (1, 2)]
-    
-    # Replace values in target tensor using the relative offsets
-    for dx, dy in offsets:
-        # Calculate the target position in the target tensor
-        target_x = x + (dx - 1)
-        target_y = y + (dy - 1)
-        
-        # Replace the value at the target position with the corresponding value in the source tensor
-        target[target_x, target_y] = source[dx, dy]
+    target[:, y.item() - 1: y.item() + 2, x.item() - 1:x.item() + 2] += delta
     
     return target
 
@@ -76,6 +67,17 @@ def map_to_nearest_value_rmax(cfg, obs):
     obs[:, :, 0] = map_to_nearest_value(obs[:, :, 0], valid_values_obj)
     obs[:, :, 1] = map_to_nearest_value(obs[:, :, 1], valid_values_color)
     obs[:, :, 2] = map_to_nearest_value(obs[:, :, 2], valid_values_state)
+    return obs
+
+def map_to_nearest_value_att(cfg, obs):
+    hparams = cfg
+    valid_values_obj = hparams.world_model.valid_values_obj
+    valid_values_color = hparams.world_model.valid_values_color
+    valid_values_state = hparams.world_model.valid_values_state
+    # Map each channel to the nearest valid value
+    obs[0, :, :] = map_to_nearest_value(obs[0, :, :], valid_values_obj)
+    obs[1, :, :] = map_to_nearest_value(obs[1, :, :], valid_values_color)
+    obs[2, :, :] = map_to_nearest_value(obs[2, :, :], valid_values_state)
     return obs
 
 def collect_data_from_env(cfg, env, policy, Rmax):
@@ -146,7 +148,7 @@ def train_world_model(cfg, data=None, model=None):
     # dataloader_val = dataloader.val_dataloader()
     if model is None:
         # this line is to check if we need to load the model and fine-tune it
-        net = SimpleNN(hparams=hparams, model=True)
+        net = SimpleNN(hparams=hparams)
     # Set up logger
     wandb_logger = None
     if use_wandb:
@@ -245,7 +247,7 @@ def update_policy_with_world_model(cfg, env, policy, R_max):
     time_step = 0
     
     # 2. load the world model
-    world_model = SimpleNN(hparams=hparams, model=True).to(device)
+    world_model = SimpleNN(hparams=hparams).to(device)
     checkpoint = torch.load(hparams.world_model.pth_folder)
     world_model.load_state_dict(checkpoint['state_dict'])
     # Set the model to evaluation mode (optional, depends on use case)
@@ -259,7 +261,7 @@ def update_policy_with_world_model(cfg, env, policy, R_max):
         goal_position = find_position(state, (8, 1, 0)) # find the goal position
         current_ep_reward = 0
         for t in range(1, max_ep_len + 1):
-            # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
+            # buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in buffer.states]
             if t>1:
                 state = state.cpu().numpy()
             agent_pos = np.argwhere(state[:, :, 0] == 10)
@@ -360,10 +362,64 @@ def training_agent_with_rmax(cfg: DictConfig):
         # # Step 3: train PPO agent udpate policy with world model
         # exploration_policy = update_policy_with_world_model(cfg, env, exploration_policy, rmax_exploration)  
 
+# for shape (channels, height, width)
+def denormalize_conv(x): 
+    obs_norm_values = [10, 5, 3] 
+    for i in range(x.shape[0]):  
+        max_value = obs_norm_values[i]
+        if max_value != 0: 
+            x[i, :, :] = x[i, :, :] * max_value
+    return x
+
+def visualization(obs, act,obs_pred):
+        ## preporcessing data
+        state_image = obs[0, :, :].detach().cpu().numpy()  # convert tensor to numpy
+        direction_map = {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
+        action_map = {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
+        direction = direction_map[round(obs[2, :, :].detach().cpu().numpy().max())]
+        action = action_map[round(act.item())]
+
+
+
+        dir = round(obs_pred[2, :, :].detach().cpu().numpy().max())
+        if dir not in direction_map.keys():
+            pre_direction = "Unknown"
+        else:
+            pre_direction = direction_map[dir]
+        obs_pred = np.round(obs_pred[0, :, :].detach().cpu().numpy())  #  convert tensor to numpy
+        
+
+        num_colors = 13 
+        custom_cmap = plt.cm.get_cmap('gray', num_colors)
+        ## visualization
+
+        plt.figure(figsize=(10, 5)) 
+        plt.subplot(1, 2, 1)  
+        obs_fig =plt.imshow(state_image, cmap=custom_cmap, interpolation='nearest')
+        plt.colorbar(obs_fig, shrink=0.7, label='State Value')
+        plt.title(f"State   Dir: {direction}   Next Action: {action}")
+
+
+
+
+        plt.subplot(1, 2, 2)  
+        
+        prefig = plt.imshow(obs_pred, cmap=custom_cmap, interpolation='nearest')
+        plt.colorbar(prefig, shrink=0.7, label='Predicted State')
+        plt.title(f"Predicted State Next Dir: {pre_direction}")
+        plt.tight_layout()
+        plt.show()
+        plt.close()
+
+        # save_file = os.path.join(save_path, f"Obs_Attention_{time.time()}.png")
+        # plt.savefig(save_file)  # save the figure to file
+        # plt.close()
+    
+
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/Rmax"), config_name="config")
 def validate(cfg: DictConfig):
     hparams = cfg
-    model = SimpleNN(hparams=hparams, model=True)
+    model = SimpleNN(hparams=hparams)
     # Load the checkpoint
     dataloader = WMRLDataModule(hparams = hparams.world_model)
     dataloader.setup()
@@ -372,6 +428,8 @@ def validate(cfg: DictConfig):
     model.load_state_dict(checkpoint['state_dict'])
     # Set the model to evaluation mode (optional, depends on use case)
     model.eval()
+    map_width = hparams.world_model.map_width
+    map_height = hparams.world_model.map_height
     # Assuming the rest of your code is already set up as provided
     batch_size = 64
     num_tests = 20
@@ -384,21 +442,38 @@ def validate(cfg: DictConfig):
         obs_real_batch = torch.tensor([dataloader.data_test[j]['obs_next'] for j in range(batch_size)])
 
         # Predict using the model
-        obs_pred = model(obs_batch, act_batch)
+        if hparams.world_model.model == 'Attention':
+            obs_temp = obs_batch.view(obs_batch.size(0), 12, 6, 3)  # convert to (batch_size, width, height, channels)
+            obs_temp = obs_temp.permute(0, 3, 2, 1)  # convert to (batch_size, channels, height, width)
+        obs_pred = model(obs_temp, act_batch)
         # map the observation to the nearest valid value
         obs_pred_map = []
+        act_batch = act_batch * 6
         for k in range(batch_size):
             # denormalize the observation
             # add the denormalized and the delta observation
             delta_obs = postprocess_delta_obs_batch(obs_pred[k])
-            obs_current = denormalize(obs_batch[k],3)
-            obs_add = delta_obs + obs_current
+            obs_current = denormalize_conv(obs_temp[k])
+            if hparams.world_model.model == 'Attention':
+                agent_pos = np.argwhere(obs_current[0, :, :] == 10)
+                obs_add =  replace_values(delta_obs.permute(2,1,0), obs_current.clone(), agent_pos)
+                obs_add = map_to_nearest_value_att(cfg, obs_add)
+                print("action:",act_batch[k])
+                print("obs_change:", torch.round(delta_obs.permute(2,1,0)))
+                print("obs_dir:",obs_current[2, :, :])
+                print("obs_cur:", obs_current[0, :, :])
+                print("obs_add:",obs_add[0, :, :])
+                visualization(obs_current, act_batch[k], obs_add)
+
+                
+            else:
+                obs_add = delta_obs + obs_current
             # print((delta_obs-obs_real_batch[k].view(3, 3, 3)).sum())
-            obs_pred_map.append(int((delta_obs-obs_real_batch[k].view(3, 3, 3)).sum()))
         print(obs_pred_map)
     pass
 
 
+
 if __name__ == "__main__":
-    training_agent_with_rmax()
-    # validate()
+    # training_agent_with_rmax()
+    validate()

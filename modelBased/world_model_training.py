@@ -6,7 +6,7 @@ import torch
 import os
 import json
 import numpy as np
-from world_model import SimpleNN
+from world_model_2 import SimpleNN
 from data.datamodule import WMRLDataModule
 from modelBased.common.utils import PROJECT_ROOT, get_env
 import hydra
@@ -100,13 +100,13 @@ def validate(cfg: DictConfig):
     pass
 
 
-def denormalize(x, dimension=6):
-    """Denormalize the obs dimensiondata from its flattened state.
+def denormalize(x, width=3, height=3):
+    """Denormalize the obs dimension data from its flattened state.
         input: x: torch.tensor of shape (,54)
     """
     obs_norm_values = [10, 5, 3] # Example normalization values for 3 channels
     # Reshape the data to its original shape before flattening
-    x = x.reshape(dimension,3,3)
+    x = x.reshape(width, height ,3)
     
     # Ensure that the norm_values is not None and has the correct length
     if obs_norm_values is None or len(obs_norm_values) != x.shape[-1]:
