@@ -1,7 +1,7 @@
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from minigrid_custom_env import *
-from minigrid.wrappers import FullyObsWrapper,  ImgObsWrapper
+from minigrid.wrappers import FullyObsWrapper, ImgObsWrapper
 from path import *
 import pandas as pd
 import json
@@ -182,7 +182,7 @@ def data_collect(cfg: DictConfig):
     env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax2, custom_mission="Find the key "
                                                                                       "and open the "
                                                                                       "door.",
-                                        max_steps=2000, render_mode=None))
+                                        max_steps=4000, render_mode=None))
     obs, obs_next, act,rew, done = run_env(env, cfg.env)
     save_experiments(cfg.env,obs,obs_next, act, rew, done)
 

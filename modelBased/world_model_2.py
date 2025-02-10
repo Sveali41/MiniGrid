@@ -13,7 +13,7 @@ import numpy as np
 import pytorch_lightning as pl
 from typing import Sequence, List, Dict, Tuple, Optional, Any, Set, Union, Callable, Mapping
 import wandb
-from modelBased.transformer6_best import *
+from modelBased.transformer import *
 
 class SimpleNN(pl.LightningModule):
     def __init__(self, hparams):

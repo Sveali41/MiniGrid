@@ -1,13 +1,15 @@
 attention_model:
-  obs_size: 216 # 3 dimensions of state + position of agent
-  action_size: 1
-  batch_size: 256  # test 64/128/256
+  feature_extration_mode: discrete   # conv, fc, discrete  选择discrete需要在datamodule取消数据归一化
+  grid_shape: [3, 11, 11]  # Channel, Row, Col
+  batch_size: 128  # test 64/128/256
   n_cpu: 8
-  embed_dim: 128  # 128 64/128/256
-  num_heads: 2   # 1 if the embed_dim is 64, num_heads should better be 1
-  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation_2.npz
-  n_epochs: 50 # number of training epochs
-  lr: 1e-3
+  embed_dim: 64  # 128 64/128/256
+  num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_11_11_100eps.npz
+  # training data for 11*11 ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation_3.npz
+  # validation data for 21*21 ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation_4.npz
+  n_epochs: 300
+  lr: 1e-4
   wd: 1e-5
   model: None  # 'Rmax' or 'Attention'
   # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
@@ -18,19 +20,20 @@ attention_model:
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
   use_wandb: False
+
   # plot
-  visualization_seperate: False  # whether to visualize the attention map
-  visualization_together: True    # whether to visualize the attention map together with the observation
-  visualize_every: 10  # 1500 visualize the attention map every n steps
-  save_path: ${oc.env:PTH_FOLDER}/AttentionVisulization # save path of attention heatmap
+  visualization: true     
+  visualize_every: 1500
+  save_path: ${oc.env:PROJECT_ROOT}/visulization
   direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
   action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
+
   # freeze weights
-  freeze_weight: True
+  freeze_weight: False
   weight_path: ${oc.env:PTH_FOLDER}/Transformer/extraction_module.ckpt
 
 test_env:
   visualize: False
-  time_limit: 256 #max number of steps for each rollout 600
-  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 #MiniGrid-Empty-5x5-v0 #MiniGrid-Empty-8x8-v0 #MiniGrid-Empty-Random-6x6-v0 
+  time_limit: 256 
+  env_name: MiniGrid-Empty-8x8-v0
   n_rollouts: 1000

@@ -3,4 +3,4 @@ env:
   visualize: False # to choose whether your want to see the env during interaction or not
   collect:
     episodes: 100 # number of episodes to start 
-    data_train: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation_2.npz # folder where to save the rollouts
+    data_train: ${oc.env:TRAIN_DATASET_PATH}/gridworld_11_11_100eps.npz # folder where to save the rollouts

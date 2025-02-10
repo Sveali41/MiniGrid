@@ -1,17 +1,14 @@
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from modelBased.common.utils import get_env
 from typing import Tuple, List, Any, Dict, Optional
 import os.path
 # import src.env.run_env_save as env_run_save
-import numpy as np
-import matplotlib.pyplot as plt
+
 import torch
-import multiprocessing
-import time
+
 from func_timeout import func_set_timeout
 
 import numpy as np
@@ -74,15 +71,25 @@ class WMRLDataset(Dataset):
         else:
             self.data = self.make_data(loaded)
 
-    @func_set_timeout(1000)
+    @func_set_timeout(100)
     def make_data(self, loaded):
-        obs = self.normalize(loaded['a'])
-        obs_next = self.normalize(loaded['b'])
+        norm = False
+        if norm:
+            obs = self.normalize(loaded['a'])
+            obs_next = self.normalize(loaded['b'])
+            act = loaded['c'].astype(np.float32) / self.act_norm_values 
+        else:
+            obs = loaded['a']
+            obs_next = loaded['b']
+            act = loaded['c']
+            #  因为要做one hot 所以数据要连续
+            from common import utils
+            obs[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2,3 ]))
+            obs[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
 
-        act = loaded['c'].astype(np.float32) / self.act_norm_values # Normalize the action with the max 6
-        # done = loaded['d'].astype(int)  # Convert boolean values to binary 0-1
+            obs_next[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
+            obs_next[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
 
-        # Create a dictionary to store processed data
         data = {
             'obs': obs,
             'obs_next': obs_next,
@@ -90,6 +97,8 @@ class WMRLDataset(Dataset):
             # 'done': done
         }
         return data
+    
+
     
     def state_batch_preprocess(self, state):
         obs = np.zeros((state.shape[0], 3, 3, state.shape[-1])) # The mask will extract a 3x3 square around the agent
@@ -115,16 +124,10 @@ class WMRLDataset(Dataset):
         return data
     
     def make_data_attention(self, loaded):
-        """
-        obs: same as normal
-        obs_next: the 3x3 square around the agent with delta change
-        """
-        obs = self.normalize(loaded['a']) # (batch_size, width*height*channels)
-        # output is the changes between the current state and the next state
-        obs_delta = self.delta_batch_preprocess(loaded['a'], loaded['b']) # (batch_size, 3*3*3)
-        act = loaded['c'].astype(np.float32) / self.act_norm_values # Normalize the action with the max 6
-        # done = loaded['d'].astype(int)  # Convert boolean values to binary 0-1
-
+        obs = self.normalize(loaded['a']) 
+        obs_delta = self.delta_batch_preprocess(loaded['a'], loaded['b']) 
+        act = loaded['c'].astype(np.float32) / self.act_norm_values 
+  
         # Create a dictionary to store processed data
         data = {
             'obs': obs,
@@ -229,6 +232,7 @@ class WMRLDataModule(pl.LightningDataModule):
             self.data_train, 
             batch_size=self.hparams.batch_size, 
             shuffle=True,
+            drop_last=True,
             num_workers=self.hparams.n_cpu,
             pin_memory=True,
             persistent_workers=True
@@ -239,6 +243,7 @@ class WMRLDataModule(pl.LightningDataModule):
             self.data_test, 
             batch_size=self.hparams.batch_size, 
             shuffle=False,
+            drop_last=True,
             num_workers=self.hparams.n_cpu,
             pin_memory=True,
             persistent_workers=True
