@@ -4,11 +4,9 @@ import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from modelBased.common.utils import get_env
 from typing import Tuple, List, Any, Dict, Optional
-import os.path
 # import src.env.run_env_save as env_run_save
-
 import torch
-
+from common import utils
 from func_timeout import func_set_timeout
 
 import numpy as np
@@ -17,6 +15,8 @@ from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 from typing import Optional
 from func_timeout import func_set_timeout  # Ensure you have this package
+import hydra
+from common.utils import PROJECT_ROOT, get_env
 
 def extract_agent_cross_mask(state):
         """
@@ -59,7 +59,7 @@ def extract_agent_cross_mask(state):
         return cross_structure
 
 class WMRLDataset(Dataset):
-    # @func_set_timeout(100)
+    @func_set_timeout(100)
     def __init__(self, loaded, hparams):
         self.hparams = hparams
         self.obs_norm_values = hparams.obs_norm_values
@@ -71,10 +71,10 @@ class WMRLDataset(Dataset):
         else:
             self.data = self.make_data(loaded)
 
+
     @func_set_timeout(100)
     def make_data(self, loaded):
-        norm = False
-        if norm:
+        if not self.hparams.feature_extration_mode == 'discrete':
             obs = self.normalize(loaded['a'])
             obs_next = self.normalize(loaded['b'])
             act = loaded['c'].astype(np.float32) / self.act_norm_values 
@@ -84,11 +84,11 @@ class WMRLDataset(Dataset):
             act = loaded['c']
             #  因为要做one hot 所以数据要连续
             from common import utils
-            obs[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2,3 ]))
+            obs[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
             obs[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
 
-            obs_next[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            obs_next[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
+            obs_next[:,:,:,0] = utils.replace_values(obs_next[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
+            obs_next[:,:,:,1] = utils.replace_values(obs_next[:,:,:,1], np.array([5]), np.array([2]))
 
         data = {
             'obs': obs,
@@ -124,9 +124,28 @@ class WMRLDataset(Dataset):
         return data
     
     def make_data_attention(self, loaded):
-        obs = self.normalize(loaded['a']) 
-        obs_delta = self.delta_batch_preprocess(loaded['a'], loaded['b']) 
-        act = loaded['c'].astype(np.float32) / self.act_norm_values 
+        mask_size = self.hparams.attention_mask_size
+        _, col, row, channel = loaded['a'].shape
+
+
+        if not self.hparams.feature_extration_mode == 'discrete':
+            obs = self.normalize(loaded['a']).reshape(-1, col, row, channel)
+            obs_next = self.normalize(loaded['b']).reshape(-1, col, row, channel)
+            act = loaded['c'].astype(np.float32) / self.act_norm_values 
+        else:
+            obs = loaded['a']
+            obs_next = loaded['b']
+            act = loaded['c']
+            obs[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
+            obs[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
+
+            obs_next[:,:,:,0] = utils.replace_values(obs_next[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
+            obs_next[:,:,:,1] = utils.replace_values(obs_next[:,:,:,1], np.array([5]), np.array([2]))
+
+        obs = utils.ColRowCanl_to_CanlRowCol(obs)
+        obs_next = utils.ColRowCanl_to_CanlRowCol(obs_next)
+        obs_delta = self.delta_batch_preprocess(obs, obs_next, mask_size, channel) 
+
   
         # Create a dictionary to store processed data
         data = {
@@ -157,42 +176,23 @@ class WMRLDataset(Dataset):
         x = x.reshape(x.shape[0], -1)
         return x
     
-    def create_3x3_mask(self, state_shape, agent_position):
-        """
-        Creates a mask that selects a 3x3 square around the agent's position.
 
-        Parameters:
-            state_shape (tuple): The shape of the gridworld state array, e.g., (height, width, channels).
-            agent_position (tuple): The (y, x) coordinates of the agent's position.
-
-        Returns:
-            np.ndarray: A boolean mask array of the same shape as the state, with True in the 3x3 square around the agent.
-        """
-        # Initialize a mask of the same shape as the state but only for height and width dimensions
-        mask = np.zeros((state_shape[0], state_shape[1]), dtype=bool)
-        
-        # Calculate the boundaries of the 3x3 square around the agent, ensuring they stay within bounds
-        y, x = agent_position
-        y_start, y_end = max(0, y - 1), min(state_shape[0], y + 2)
-        x_start, x_end = max(0, x - 1), min(state_shape[1], x + 2)
-        
-        # Set the 3x3 square area around the agent to True
-        mask[y_start:y_end, x_start:x_end] = True
-        
-        return mask
     
-    def delta_batch_preprocess(self, state, next_state):
-        delta_state = np.zeros((state.shape[0], 3 * 3 * state.shape[-1])) 
+    def delta_batch_preprocess(self, state, next_state, mask_size, channel):
+        delta_state = np.zeros((state.shape[0], channel * mask_size * mask_size)) 
         for i in range(state.shape[0]):
-            delta_state[i] = self.delta_state(state[i], next_state[i]).reshape(-1)
+            delta_state[i] = self.delta_state(state[i], next_state[i], mask_size).reshape(-1)
         return delta_state
 
-    def delta_state(self, state, next_state):
-        agent_position = np.argwhere(state[:, :, 0] == 10)[0]
-        delta_state = next_state.astype(np.int16)-state.astype(np.int16)
-        mask = self.create_3x3_mask(state.shape, agent_position)
-        delta_state = delta_state[mask].reshape((3, 3, 3))
-        return delta_state
+    def delta_state(self, state, next_state, mask_size):
+        if self.hparams.feature_extration_mode == 'discrete':
+            agent_position_yx = np.argwhere(state[0, :, :] == 3)[0]
+            delta_state = next_state.astype(np.int16)-state.astype(np.int16)
+        else:
+            agent_position_yx = np.argwhere(state[0, :, :] == 1)[0]
+            delta_state = next_state.astype(np.float32)-state.astype(np.float32)
+        masked_delta_state = utils.extract_masked_state(delta_state, agent_position_yx, mask_size)
+        return masked_delta_state
 
 
     def __len__(self):

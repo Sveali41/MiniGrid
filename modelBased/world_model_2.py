@@ -14,6 +14,7 @@ import pytorch_lightning as pl
 from typing import Sequence, List, Dict, Tuple, Optional, Any, Set, Union, Callable, Mapping
 import wandb
 from modelBased.transformer import *
+import transformer_support
 
 class SimpleNN(pl.LightningModule):
     def __init__(self, hparams):
@@ -25,12 +26,12 @@ class SimpleNN(pl.LightningModule):
         self.action_size = hparams.action_size
         self.total_input_size = self.obs_size + self.action_size
         self.algo = hparams.model
-        self.visualizationFlag = hparams.visualizationFlag
-        self.visualize_every = hparams.visualize_every
-        self.save_path = hparams.save_path
-        self.step_counter = 0  # init step counter 
-        self.action_map = hparams.action_map 
-        self.direction_map = hparams.direction_map
+        # self.visualizationFlag = hparams.visualization
+        # self.visualize_every = hparams.visualize_every
+        # self.save_path = hparams.save_path
+        # self.step_counter = 0  # init step counter 
+        # self.action_map = hparams.action_map 
+        # self.direction_map = hparams.direction_map
 
         # # Define the first dense layer to process the combined input
         # self.shared_layers = nn.Sequential(
@@ -132,7 +133,7 @@ class SimpleNN(pl.LightningModule):
             The loaded attention model.
         """
         hparams = cfg
-        model = ExtractionModule(hparams.action_size, hparams.embed_dim, hparams.num_heads)
+        model = transformer_support.ExtractionModule(hparams.action_size, hparams.embed_dim, hparams.num_heads)
         # Load the checkpoint
         checkpoint = torch.load(hparams.pth_folder)
         # Load state_dict into the model

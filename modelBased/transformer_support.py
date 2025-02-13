@@ -2,258 +2,142 @@ import torch
 from torch import nn
 from torch import nn
 import torch.nn.functional as F
-from enum import Enum
+from common import utils
 
-class TransformerBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads, dim_feedforward=128, dropout=0.2):
-        super().__init__()
-        # 1) Multi-Head Attention
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=dropout)
-        # 残差 & LayerNorm
-        self.ln1 = nn.LayerNorm(embed_dim)
+class CustomTransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, dropout=0.1):
+        """
+        :param d_model: 特征维度
+        :param nhead: 注意力头数
+        :param dropout: dropout 比例
+        """
+        super(CustomTransformerEncoderLayer, self).__init__()
+        # 使用 nn.MultiheadAttention，batch_first=True 便于使用形状 (B, seq_len, d_model)
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        # 前馈网络
+        self.linear1 = nn.Linear(d_model, d_model * 4)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(d_model * 4, d_model)
+        # 两个 LayerNorm 层
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(dropout)
-        # 2) 前馈网络 (FFN): 通常是 Linear -> ReLU -> Linear
-        self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, dim_feedforward),
-            nn.ReLU(),
-            nn.Linear(dim_feedforward, embed_dim),
-        )
-        # 残差 & LayerNorm
-        self.ln2 = nn.LayerNorm(embed_dim)
         self.dropout2 = nn.Dropout(dropout)
-    
-    def forward(self, Q, KV, attn_mask=None):
-        attn_out, attn_weights = self.attn(query=Q, key=KV, value=KV, attn_mask=attn_mask)
-        # 残差连接
-        Q = Q + self.dropout1(attn_out)
-        # LayerNorm
-        Q = self.ln1(Q)
-        # ---- (2) 前馈网络 (FFN) ----
-        ffn_out = self.ffn(Q)
-        # 残差连接
-        Q = Q + self.dropout2(ffn_out)
-        # LayerNorm
-        out = self.ln2(Q)
-        return out, attn_weights
 
-def generate_positional_encoding(position, embed_dim):
-    position_encoding = torch.zeros(position.size(0), embed_dim, device=position.device)
-    for i in range(embed_dim // 2):
-        position_encoding[:, 2 * i] = torch.sin(position[:, 0] / (10000 ** (2 * i / embed_dim)))
-        position_encoding[:, 2 * i + 1] = torch.cos(position[:, 0] / (10000 ** (2 * i / embed_dim)))
-    return position_encoding
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+        """
+        :param src: 输入张量，形状 (B, seq_len, d_model)
+        :return:
+            - src: Transformer Encoder 层输出 (B, seq_len, d_model)
+            - attn_weights: 注意力权重，形状 (B, num_heads, seq_len, seq_len)
+        """
+        # 计算自注意力，并返回注意力权重
+        attn_output, attn_weights = self.self_attn(
+            src, src, src,
+            attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask,
+            need_weights=True
+        )
+        # 残差连接 + LayerNorm
+        src = src + self.dropout1(attn_output)
+        src = self.norm1(src)
+        # 前馈网络部分
+        ff_output = self.linear2(self.dropout(F.relu(self.linear1(src))))
+        src = src + self.dropout2(ff_output)
+        src = self.norm2(src)
+        return src, attn_weights
+
 
 class ExtractionModule(nn.Module):
-    def __init__(self, mode, batch_size, grid_shape, embed_dim, num_heads, ff_dim=128, dropout=0):
+    def __init__(self, mode, batch_size, grid_shape, mask_size, embed_dim, num_heads):
         super().__init__()
-        ff_dim = 2 * embed_dim
         self.mode = mode
-        self.channel, self.row, self.col = grid_shape
-        self.batch_size = batch_size
-        dim = 4
-        if mode == 'conv' or mode == 'mlp':
-            if mode == 'conv':
-                self.conv = nn.Sequential(
-                    nn.Conv2d(self.channel, embed_dim, kernel_size=3, padding=1),
-                    nn.ReLU(),
-                )
-            if mode == 'mlp':
-                self.mlp = nn.Sequential(
-                    nn.Linear(self.channel, embed_dim),
-                    nn.ReLU()
-                )
-            
-            self.relative_pos_fc = nn.Linear(2, dim)
-            self.dir_embedding = nn.Embedding(4, dim)    # 方向4种 -> 4维
-            self.act_embedding = nn.Embedding(7, dim)    # 动作7种 -> 4维
-            self.pos_fc = nn.Linear(2, dim)  
-            self.query_fc = nn.Linear(2 * dim, embed_dim)
-            self.kv_fc = nn.Linear(embed_dim + dim, embed_dim)
-
-            self.transformer_block = TransformerBlock(
-                embed_dim=embed_dim,
-                num_heads=num_heads,
-                dim_feedforward=ff_dim,
-                dropout=dropout
-            )
-            # 生成网格并归一化
-            row_idx = torch.arange(self.row, dtype=torch.float32)
-            col_idx = torch.arange(self.col, dtype=torch.float32)
-            row_grid, col_grid = torch.meshgrid(row_idx, col_idx, indexing='ij')
-
-            row_grid = row_grid / (self.row - 1)   # 归一化 [0, 1]
-            col_grid = col_grid / (self.col - 1)
-            position_norm = torch.stack([row_grid, col_grid], dim=-1)  # [row, col, 2]
-            position_norm = position_norm.reshape(-1, 2)               # [row*col, 2]
-
-            self.register_buffer(
-                'batch_position', 
-                position_norm.unsqueeze(0).expand(batch_size, -1, -1)
-            )
-        
-        if mode == 'fc':
-            self.fc_state = nn.Sequential(
-                        nn.Linear(grid_shape[0] * grid_shape[1] * grid_shape[2], 4 * embed_dim),
-                        nn.LayerNorm(4 * embed_dim), 
-                        nn.LeakyReLU(negative_slope=0.01), 
-                        
-                        nn.Linear(4 * embed_dim, 2 * embed_dim),
-                        nn.LayerNorm(2 * embed_dim),  
-                        nn.LeakyReLU(negative_slope=0.01),  
-                        
-                        nn.Linear(2 * embed_dim, embed_dim),
-                        nn.LayerNorm(embed_dim),  
-                        nn.LeakyReLU(negative_slope=0.01), 
-                        
-                        nn.Linear(embed_dim, embed_dim),
-                        nn.LayerNorm(embed_dim),  
-                        nn.LeakyReLU(negative_slope=0.01)  
-                    )
-            
-            self.act_embedding = nn.Embedding(7, dim)    # 动作7种 -> 4维
-            self.fc_fusion = nn.Sequential(
-                        nn.Linear(embed_dim + dim, embed_dim),
-                        nn.LayerNorm(embed_dim)
-                    )
-            
-
         if mode == 'discrete':
-            self.transformer_block = TransformerBlock(
-                embed_dim=embed_dim,
-                num_heads=num_heads,
-                dim_feedforward=ff_dim,
-                dropout=dropout
-            )
-            self.act_layer = nn.Linear(7, embed_dim)
-            self.state_layer = nn.Sequential(
-                        nn.Linear(11, embed_dim // 2),
-                        # nn.LayerNorm(4 * embed_dim), 
-                        # nn.LeakyReLU(negative_slope=0.01), 
-                        
-                        nn.Linear(embed_dim // 2, embed_dim),
-                        # nn.LayerNorm(2 * embed_dim),  
-                        # nn.LeakyReLU(negative_slope=0.01),  
-                        
-                        nn.Linear(embed_dim, embed_dim * 2),
-                        # nn.LayerNorm(embed_dim),  
-                        # nn.LeakyReLU(negative_slope=0.01), 
-                        
-                        nn.Linear(embed_dim * 2, embed_dim)
-                        # nn.LayerNorm(embed_dim),  
-                        # nn.LeakyReLU(negative_slope=0.01)  
-                        )
+            self.input_channel = 11
+            self.action_embedding = nn.Embedding(7, embed_dim)
+        else:
+            self.input_channel = grid_shape[0]
+            self.action_fc = nn.Linear(1, embed_dim)
 
+        self.batch_size = batch_size
+        self.mask_size = mask_size
+        self.y, self.x = mask_size // 2, mask_size // 2
+        self.conv1 = nn.Conv2d(self.input_channel, embed_dim, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(embed_dim)
+        self.conv2 = nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(embed_dim)
+        self.relu = nn.ReLU(inplace=True)
 
+        # 2. 展平操作，将 (B, embed_dim, H, W) 展平为 (B, embed_dim, H*W)
+        self.flatten = nn.Flatten(2)
+        # 位置编码：为每个 patch 学习一个位置编码，形状为 (1, height*width, embed_dim)
+        self.pos_embedding = nn.Parameter(torch.randn(1, mask_size * mask_size, embed_dim))
+
+        # 3. 动作嵌入：将离散动作编码为与 embed_dim 相同的向量
+        self.fuse_fc = nn.Linear(embed_dim * 2, embed_dim)
+
+        # 4. 多层自定义 Transformer Encoder 层
+        self.transformer_layers = nn.ModuleList([
+            CustomTransformerEncoderLayer(d_model=embed_dim, nhead=num_heads)
+            for _ in range(1)
+        ])
 
     def forward(self, state, action):
-        B = state.size(0)
+        B, _, H, W = state.size()
         assert B == self.batch_size, "batch_size mismatch!"
-
-        if self.mode == 'conv' or self.mode == 'mlp':
-            if self.mode == 'conv':
-                state_embed = self.conv(state)
-                state_embed = state_embed.flatten(2).permute(0, 2, 1) 
-            
-            if self.mode == 'mlp':
-                state_embed = state.flatten(2).permute(0, 2, 1) 
-                state_embed = self.mlp(state_embed)
-
-            agent_coords = torch.argwhere(state[:, 0, :, :] == 1) 
-            agent_coords = agent_coords[agent_coords[:,0].sort()[1]]
-            agent_position = agent_coords[:, 1:]  
-
-            agent_pos_norm = torch.zeros_like(agent_position, dtype=torch.float32)
-            agent_pos_norm[:, 0] = agent_position[:, 0] / (self.row - 1)
-            agent_pos_norm[:, 1] = agent_position[:, 1] / (self.col - 1)
-            agent_pos_emb = self.pos_fc(agent_pos_norm)  
-
-            relative_position = self.batch_position - agent_pos_norm.unsqueeze(1)  
-            relative_position_emb = self.relative_pos_fc(relative_position)       
-
-            batch_indices = torch.arange(B, device=state.device)
-            dir_map = state[:, 2, :, :]  
-            y, x = agent_position[:, 0], agent_position[:, 1]
-            dir_idx = (dir_map[batch_indices, y, x] * 3).long()      
-            dir_emb = self.dir_embedding(dir_idx)                    
-
-            act_idx = (action * 6).long()  
-            act_emb = self.act_embedding(act_idx)  
-
-            Q_in = torch.cat([act_emb, dir_emb], dim=-1)  
-            Q = self.query_fc(Q_in).unsqueeze(1)                         
-
-            KV_in = torch.cat([state_embed, relative_position_emb], dim=-1) 
-            KV = self.kv_fc(KV_in)  
-
-            attention_output, attention_weights = self.transformer_block(Q, KV)
-            output = attention_output.squeeze(1)
-            atten_weights = attention_weights.squeeze(1)
-
         
-        if self.mode == 'fc':
-            state = state.reshape(B, -1)
-            state_emb = self.fc_state(state)
-            act_idx = (action * 6).long()  
-            act_emb = self.act_embedding(act_idx)  
-            output = self.fc_fusion(torch.cat([state_emb, act_emb], dim=-1) )
-            atten_weights = torch.zeros((B, self.row * self.col))
-
         if self.mode == 'discrete':
             obj = state[:, 0, :, :]
             color = state[:, 1, :, :]
             dir = state[:, 2, :, :]
-
             obj = F.one_hot(obj.reshape(B, -1).long(), num_classes=4)
             color = F.one_hot(state[:, 1, :, :].reshape(B, -1).long(), num_classes=3)
             dir = F.one_hot(state[:, 2, :, :].reshape(B, -1).long(), num_classes=4)
             state_emb = torch.cat([obj, color, dir], dim=-1).float()
-            act_emb = F.one_hot(action, num_classes=7).float()
+            state_emb = state_emb.transpose(1,2).reshape(B, self.input_channel, H, W)
+            action_emb = self.action_embedding(action)
 
-            state_emb = self.state_layer(state_emb)
-            act_emb = self.act_layer(act_emb)
+        else:
+            action_emb = self.action_fc(action.unsqueeze(1))  # (B, embed_dim)
+            state_emb = state
 
-            attention_output, attention_weights = self.transformer_block(act_emb.unsqueeze(1), state_emb)
-            output = attention_output.squeeze(1)
-            atten_weights = attention_weights.squeeze(1)
-            
-            
-        return output, atten_weights
+
+
+        x = self.relu(self.bn1(self.conv1(state_emb)))
+        x = self.relu(self.bn2(self.conv2(x)))
+        # 2. 展平空间维度，将 (B, embed_dim, 5, 5) 转换为 (B, embed_dim, 25)
+        x = self.flatten(x)
+        # 转置为 (B, 25, embed_dim) 作为 Transformer 的输入
+        x = x.transpose(1, 2)
+        # 3. 添加位置编码
+        x = x + self.pos_embedding  # (B, 25, embed_dim)
+
+        # 4. 融合动作信息
+        # 假设 action 为离散变量，shape (B,)
+        # 将 action_emb 扩展至 (B, 25, embed_dim)（对每个 token都添加相同的动作信息）
+        action_emb = action_emb.unsqueeze(1).expand(-1, x.size(1), -1)
+        fused = torch.cat([x, action_emb], dim=-1)  # (B, 25, embed_dim*2)
+        x = self.fuse_fc(fused)  # (B, 25, embed_dim)
+
+        # 5. 依次通过 Transformer Encoder 层
+        attn_weights = None
+        for layer in self.transformer_layers:
+            x, attn_weights = layer(x)
+
+        return x, attn_weights
+    
+
 
 class PredictionModule(nn.Module):
-    def __init__(self, embed_dim, grid_shape, hidden_dim=128):
+    def __init__(self, embed_dim, delta_shape, hidden_dim=128):
         super().__init__()
-        hidden_dim = 4 * embed_dim  # 增大隐藏层的维度
+        self.fc = nn.Linear(embed_dim, 3)
 
-        # 增加更多的全连接层
-        self.fc1 = nn.Linear(embed_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.fc4 = nn.Linear(hidden_dim // 2, grid_shape[0] * grid_shape[1] * grid_shape[2])
 
-        # 批归一化
-        self.bn1 = nn.LayerNorm(hidden_dim)
-        self.bn2 = nn.LayerNorm(hidden_dim)
-        self.bn3 = nn.LayerNorm(hidden_dim // 2)
-
-        # Dropout 防止过拟合
-        self.dropout = nn.Dropout(0.3)
-
-    def forward(self, extracted_features):
-        # 第一层
-        x = F.leaky_relu(self.bn1(self.fc1(extracted_features)))
-        x = self.dropout(x)
-        
-        # 第二层
-        x = F.leaky_relu(self.bn2(self.fc2(x)))
-        x = self.dropout(x)
-        
-        # 第三层
-        x = F.leaky_relu(self.bn3(self.fc3(x)))
-        x = self.dropout(x)
-        
-        # 输出层
-        output = self.fc4(x)
-        return F.softplus(output)  # 使用 softplus 激活输出
+    def forward(self, x):
+        x = self.fc(x)
+        x = x.transpose(1, 2).flatten(1)
+        return x
     
 
 

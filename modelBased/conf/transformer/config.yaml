@@ -1,17 +1,18 @@
 attention_model:
-  feature_extration_mode: discrete   # conv, fc, discrete  选择discrete需要在datamodule取消数据归一化
+  feature_extration_mode: discrete # 'norm' or 'discrete'
   grid_shape: [3, 11, 11]  # Channel, Row, Col
+  attention_mask_size: 5
   batch_size: 128  # test 64/128/256
   n_cpu: 8
   embed_dim: 64  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
-  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_11_11_100eps.npz
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_6_12_50eps.npz
   # training data for 11*11 ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation_3.npz
   # validation data for 21*21 ${oc.env:TRAIN_DATASET_PATH}/gridworld_full_augmentation_4.npz
-  n_epochs: 300
-  lr: 1e-4
+  n_epochs: 100
+  lr: 1e-3
   wd: 1e-5
-  model: None  # 'Rmax' or 'Attention'
+  model: Attention  # 'Rmax' or 'Attention'
   # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
   pth_folder: ${oc.env:PTH_FOLDER}/Transformer/attention_world_model.ckpt
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
@@ -19,18 +20,19 @@ attention_model:
   valid_values_obj: [1, 2, 4, 5, 8, 10]
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
-  use_wandb: False
+  use_wandb: true
+
 
   # plot
-  visualization: true     
-  visualize_every: 1500
+  visualization: false       
+  visualize_every: 1000
   save_path: ${oc.env:PROJECT_ROOT}/visulization
   direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
   action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
 
   # freeze weights
-  freeze_weight: False
-  weight_path: ${oc.env:PTH_FOLDER}/Transformer/extraction_module.ckpt
+  freeze_weight: true
+  weight_path: ${oc.env:PTH_FOLDER}/Transformer/extraction_prediction_module.ckpt
 
 test_env:
   visualize: False

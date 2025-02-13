@@ -8,18 +8,25 @@ from typing import List, Dict, Union
 from common import utils
 import transformer_support
 
+
 class IntegratedModel(nn.Module):
-    def __init__(self, feature_extration_mode, batch_size, grid_shape, embed_dim, num_heads, freeze_weight=False, weight_path=''):
+    def __init__(self, feature_extration_mode, batch_size, grid_shape, mask_size, delta_shape, embed_dim, num_heads, freeze_weight=False, weight_path=''):
         super().__init__()
-        self.extraction_module = transformer_support.ExtractionModule(feature_extration_mode, batch_size, grid_shape, embed_dim, num_heads)
-        self.prediction_module = transformer_support.PredictionModule(embed_dim, grid_shape)
+        self.extraction_module = transformer_support.ExtractionModule(feature_extration_mode, batch_size, grid_shape, mask_size, embed_dim, num_heads)
+        self.prediction_module = transformer_support.PredictionModule(embed_dim, delta_shape)
         ## Freaze the extraction module & Local test
         if freeze_weight:
             checkpoint = torch.load(weight_path)
-            self.extraction_module.load_state_dict(checkpoint['state_dict'])
+            self.extraction_module.load_state_dict(checkpoint['extraction'])
             self.extraction_module.eval()
             for param in self.extraction_module.parameters():
                 param.requires_grad = False # Freeze the model
+                
+            self.prediction_module.load_state_dict(checkpoint['prediction'])
+            self.prediction_module.eval()
+            for param in self.extraction_module.parameters():
+                param.requires_grad = False # Freeze the model
+
 
     def forward(self, state, action):
         # extract features from state and action
@@ -31,13 +38,16 @@ class IntegratedModel(nn.Module):
 class IntegratedPredictionModel(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
+        self.mask_size = hparams.attention_mask_size
         self.channel, self.row, self.col = hparams.grid_shape
         self.lr= hparams.lr
         self.weight_decay = hparams.wd
         self.visualizationFlag = hparams.visualization
         self.visualize_every = hparams.visualize_every
         self.step_counter = 0  
-        self.model = IntegratedModel(hparams.feature_extration_mode, hparams.batch_size, hparams.grid_shape, hparams.embed_dim, hparams.num_heads, hparams.freeze_weight, hparams.weight_path)
+        delta_shape = [self.channel, self.mask_size, self.mask_size]
+        self.mode = hparams.feature_extration_mode
+        self.model = IntegratedModel(hparams.feature_extration_mode, hparams.batch_size, hparams.grid_shape, hparams.attention_mask_size, delta_shape, hparams.embed_dim, hparams.num_heads, hparams.freeze_weight, hparams.weight_path)
         # self.loss = nn.MSELoss()
         self.loss = nn.SmoothL1Loss()
         self.visual_func = utils.Visualization(hparams)
@@ -72,10 +82,25 @@ class IntegratedPredictionModel(pl.LightningModule):
         act = batch['act']
         obs_next = batch['obs_next']
         ## Reshape date format from (batch_size, col, row, channel) to (batch_size, channel, row, col) 
-        obs_temp = obs.view(obs.size(0), self.col, self.row, self.channel)  
-        obs = obs_temp.permute(0, 3, 2, 1)  
-        obs_next_temp = obs_next.view(obs_next.shape[0], self.col, self.row, self.channel)   
-        obs_next = obs_next_temp.permute(0, 3, 2, 1).flatten(start_dim=1) 
+        # change: Extract masked state as the eyesight of the agent
+        # Assuming obs_temp is a PyTorch tensor with shape (batch_size, height, width, channels)
+        batch_size = obs.shape[0]
+        masked_states = []
+        for i in range(batch_size):
+            if self.mode == 'discrete':
+                agent_position = torch.nonzero(obs[i, 0, :, :] == 3, as_tuple=False)[0]
+            else:
+                agent_position = torch.nonzero(obs[i, 0, :, :] == 1, as_tuple=False)[0]
+            # Convert the state to a NumPy array
+            state_np = obs[i].cpu().numpy()
+            # Extract masked state as the eyesight of the agent
+            obs_cur = utils.extract_masked_state(state_np, agent_position.cpu().numpy(), self.mask_size)
+            # Convert the result back to a PyTorch tensor
+            obs_tensor = torch.from_numpy(obs_cur).float()
+            masked_states.append(obs_tensor)
+        # Convert the list of masked states to a tensor
+        masked_obs = torch.stack(masked_states).cuda()
+        obs = masked_obs
         return obs, act, obs_next
 
     def training_step(self, batch, batch_idx):
@@ -89,8 +114,8 @@ class IntegratedPredictionModel(pl.LightningModule):
 
         ## calculate loss
         loss = self.loss_function(obs_pred, obs_next)
-        # self.log_dict(loss)
-        self.log("train_loss", loss['loss_obs'], on_step=True, on_epoch=True, prog_bar=True, logger=False)
+        self.log_dict(loss)
+        # self.log("train_loss", loss['loss_obs'], on_step=True, on_epoch=True, prog_bar=True, logger=False)
 
         ## visualization
         self.step_counter += 1
@@ -105,8 +130,8 @@ class IntegratedPredictionModel(pl.LightningModule):
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
-        # self.log_dict(loss)
-        self.log("val_loss", loss['loss_obs'], on_step=False, on_epoch=True, prog_bar=True, logger=False)
+        self.log_dict(loss)
+        # self.log("val_loss", loss['loss_obs'], on_step=False, on_epoch=True, prog_bar=True, logger=False)
         return {"loss_wm_val": loss['loss_obs']}
 
     def validation_epoch_end(

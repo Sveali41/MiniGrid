@@ -40,12 +40,71 @@ def replace_values(arr, old_values, new_values):
     arr[:, :] = np.take(mapping, arr[:, :])
     return arr
 
+def create_mask(state_shape, agent_position, mask_size):
+    mask = np.zeros((state_shape[0], state_shape[1]), dtype=bool)
+    y, x = agent_position
+    half_size = mask_size // 2
+    y_start, y_end = max(0, y - half_size), min(state_shape[0], y + half_size + 1)
+    x_start, x_end = max(0, x - half_size), min(state_shape[1], x + half_size + 1)
+    mask[y_start:y_end, x_start:x_end] = True
+    return mask
+
+def ColRowCanl_to_CanlRowCol(state):
+    state = state.transpose(0, 3, 2, 1)
+    return state
+
+def extract_masked_state(state, agent_position_yx, mask_size):
+    channels, rows, cols = state.shape
+    y, x = agent_position_yx
+    half = mask_size // 2
+    margin_data = state[:, 0, 0]
+    region = np.tile(margin_data.reshape(channels, 1, 1),
+                     (1, mask_size, mask_size))
+
+    src_slice_y = slice(max(y - half, 0), min(y + half + 1, rows))
+    src_slice_x = slice(max(x - half, 0), min(x + half + 1, cols))
+
+    dest_slice_y = slice(max(0, half - y), max(0, half - y) + (min(y + half + 1, rows) - max(y - half, 0)))
+    dest_slice_x = slice(max(0, half - x), max(0, half - x) + (min(x + half + 1, cols) - max(x - half, 0)))
+
+    # 将 state 中的有效区域复制到预填充区域中
+    region[:, dest_slice_y, dest_slice_x] = state[:, src_slice_y, src_slice_x]
+    return region
+
+    
+def visualize_attention_2d(attn_weights, sample_idx=0, query_idx=0):
+    """
+    可视化指定样本中某个 query token 的注意力分布，
+    将 25 维注意力向量 reshape 成 5×5 的网格。
+
+    参数：
+      attn_weights: Tensor，形状 (B, 25, 25)，例如来自模型输出的注意力权重
+      sample_idx: 选择 batch 中的样本索引
+      query_idx: 选择某个 query token 的索引（0~24），
+                 该索引可映射为 5×5 区域中的 (row, col) = (query_idx//5, query_idx%5)
+    """
+    # 取出指定样本和 query token 对应的注意力向量，形状 (25,)
+    attn_vector = attn_weights[sample_idx, query_idx]  # 例如 shape: (25,)
+    
+    # reshape 为 5×5 矩阵
+    attn_grid = attn_vector.reshape(5, 5).detach().cpu().numpy()
+    
+    plt.figure(figsize=(6, 5))
+    plt.imshow(attn_grid, cmap='viridis')
+    plt.colorbar()
+    plt.title(f'Attention (Sample {sample_idx}, Query token {query_idx}\nGrid loc: ({query_idx//5}, {query_idx%5}))')
+    plt.xlabel('Key Token Grid Column')
+    plt.ylabel('Key Token Grid Row')
+    plt.show()
+
 class Visualization:
     def __init__(self, config=''):
         self.cfg = config
 
     def visualize_attention(self, obs, act, attentionWeight, obs_next, obs_pred, step_counter, size=(14, 10), shrink=1):
-        channel, row, col = self.cfg.grid_shape
+        
+        mask_size = self.cfg.attention_mask_size
+        channel, row, col = 3, mask_size, mask_size
         # Preprocess data
         obs_next_temp = obs_next.view(obs_next.shape[0], channel, row, col) 
 
@@ -58,10 +117,15 @@ class Visualization:
         direction = self.cfg.direction_map[round(obs[-1, 2, :, :].detach().cpu().numpy().max() * dir_ratio)]
         action = self.cfg.action_map[round(act[-1].item() * act_ratio)]
         next_direction = self.cfg.direction_map[round(obs_next_temp[-1, 2, :, :].detach().cpu().numpy().max() * dir_ratio)]
-        obs_next = obs_next_temp[-1, 0, :, :].detach().cpu().numpy() * 10  # Convert tensor to numpy
+        obs_next = obs_next_temp[-1, 0, :, :].detach().cpu().numpy() * obj_ratio  # Convert tensor to numpy
         pred_direction_idx = round(obs_pred[-1, :].reshape(channel, row, col)[2, :, :].detach().cpu().numpy().max() * dir_ratio)
         obs_pred = np.round(obs_pred[-1, :].reshape(channel, row, col)[0, :, :].detach().cpu().numpy() * obj_ratio)  # Convert tensor to nump
-        heat_map = attentionWeight[-1, :].reshape(row, col).detach().cpu().numpy()  # Convert tensor to numpy
+        if len(attentionWeight.shape) == 2:
+            heat_map = attentionWeight[-1, :].reshape(row, col).detach().cpu().numpy()  # Convert tensor to numpy
+        elif len(attentionWeight.shape) == 3:
+            heat_map = attentionWeight[-1, (mask_size**2)//2, :].reshape(row, col).detach().cpu().numpy()
+        else:
+            raise ValueError("Attention weight shape is not supported.")
         pre_direction = self.cfg.direction_map.get(pred_direction_idx, "Unknown")
 
         

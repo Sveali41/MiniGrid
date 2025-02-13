@@ -13,7 +13,9 @@ import numpy as np
 import pytorch_lightning as pl
 from typing import Sequence, List, Dict, Tuple, Optional, Any, Set, Union, Callable, Mapping
 import wandb
-from modelBased.transformer6_best import *
+from matplotlib import pyplot as plt
+from modelBased.transformer import *
+import transformer_support
 
 class SimpleNN(pl.LightningModule):
     def __init__(self, hparams):
@@ -132,7 +134,7 @@ class SimpleNN(pl.LightningModule):
             The loaded attention model.
         """
         hparams = cfg
-        model = ExtractionModule(hparams.action_size, hparams.embed_dim, hparams.num_heads)
+        model = transformer_support.ExtractionModule(hparams.action_size, hparams.embed_dim, hparams.num_heads)
         # Load the checkpoint
         checkpoint = torch.load(hparams.pth_folder)
         # Load state_dict into the model
