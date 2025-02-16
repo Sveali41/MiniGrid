@@ -3,11 +3,15 @@ wandb/
 outputs/
 
 # Ignore Python bytecode files
-__pycache__/
+**/__pycache__/
+
 *.py[cod]
 
 # Ignore JetBrains IDE settings
 .idea/
 
 # ignore visualisation files
-/modelBased/models/ckpt/AttentionVisualisation/
+modelBased/visulization
+
+# ignore model files
+modelBased/models/Rmax
