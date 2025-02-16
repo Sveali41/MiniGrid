@@ -1,20 +1,18 @@
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
-from path import Paths
 from minigrid_custom_env import CustomEnvFromFile
 from minigrid.wrappers import FullyObsWrapper
 import torch
-import torch.nn as nn
 import numpy as np
-import torch.distributions as td
 from PPO import PPO
-import os
 import hydra
-from modelBased.common.utils import PROJECT_ROOT
 from datetime import datetime
-from modelBased.world_model import SimpleNN
-from modelBased.world_model_training import normalize, map_obs_to_nearest_value
-from omegaconf import DictConfig, OmegaConf
+from common import utils
+from common.utils import PROJECT_ROOT
+from omegaconf import DictConfig, OmegaConf 
+import AttentionWM_support
+import Embedding_support
+import MLP_support
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -52,7 +50,7 @@ def get_destination(obs, episode, maxstep, destination):
 
     check from wrappers.py full_obs-->encode
     """
-    if obs[destination[0], destination[1]][0] == 10:
+    if obs[0, destination[0], destination[1]] == 10:
         # agent has reached the destination
         if episode >= maxstep:
             done = True
@@ -78,48 +76,76 @@ def find_position(array, target):
         tuple: The position (x, y) of the target in the array if found, otherwise None.
     """
     # Find all indices where the value matches the target
-    result = np.argwhere((array == target).all(axis=-1))
+    target = np.array(target).reshape(-1, 1, 1)
+    result = np.argwhere((array == target).all(axis=0))
 
     # Check if any matches were found
     if result.size > 0:
         return tuple(result[0])  # Return the first match as a tuple (x, y)
     else:
         return None
-    
-@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "conf/model"), config_name="config")
+
+def process_data(state, action, maks_size, action_norm_values):
+    action = action / action_norm_values 
+    agent_postion_yx = utils.get_agent_position(state)
+    state_masked = utils.extract_masked_state(state, maks_size, agent_postion_yx) 
+    return state_masked, action
+
+@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def training_agent(cfg: DictConfig):
     hparams = cfg
     
-    # 1. world Model
-    model = SimpleNN(hparams=hparams).to(device)
-    checkpoint = torch.load(hparams.world_model.pth_folder)
-    model.load_state_dict(checkpoint['state_dict'])
-    model.eval()
+    # 1. World Model
+    hparams_world_model = hparams.attention_model
+
+    MODEL_MAPPING = {
+            'attention': AttentionWM_support.AttentionModule,
+            'embedding': Embedding_support.EmbeddingModule,
+            'mlp': MLP_support.SimpleNNModule
+        }
+    # 初始化模型
+    module_class = MODEL_MAPPING.get(hparams_world_model.model_type.lower())
+    if module_class is not None:
+        model = module_class(
+            hparams_world_model.data_type,  
+            hparams_world_model.grid_shape, 
+            hparams_world_model.attention_mask_size, 
+            hparams_world_model.embed_dim, 
+            hparams_world_model.num_heads
+        )
+    else:
+        print(f"Model type: {hparams_world_model.model_type} not supported")
+        exit()
+    utils.load_model_weight(model, hparams_world_model.weight_save_path, 'model')
     
+
+
     # 2. PPO
     # hyperparameters
+    hparams_PPO = hparams.PPO
     start_time = datetime.now().replace(microsecond=0)
-    lr_actor = hparams.PPO.lr_actor
-    lr_critic = hparams.PPO.lr_critic
-    gamma = hparams.PPO.gamma
-    K_epochs = hparams.PPO.K_epochs
-    eps_clip = hparams.PPO.eps_clip
-    action_std = hparams.PPO.action_std
-    action_std_decay_rate = hparams.PPO.action_std_decay_rate
-    min_action_std = hparams.PPO.min_action_std
-    action_std_decay_freq = hparams.PPO.action_std_decay_freq
-    max_training_timesteps = hparams.PPO.max_training_timesteps
-    save_model_freq = hparams.PPO.save_model_freq
-    max_ep_len = hparams.PPO.max_ep_len
-    has_continuous_action_space = hparams.PPO.has_continuous_action_space
-    checkpoint_path = hparams.PPO.checkpoint_path
-    
-    # 3. Real env
-    path = Paths()
+    lr_actor = hparams_PPO.lr_actor
+    lr_critic = hparams_PPO.lr_critic
+    gamma = hparams_PPO.gamma
+    K_epochs = hparams_PPO.K_epochs
+    eps_clip = hparams_PPO.eps_clip
+    action_std = hparams_PPO.action_std
+    action_std_decay_rate = hparams_PPO.action_std_decay_rate
+    min_action_std = hparams_PPO.min_action_std
+    action_std_decay_freq = hparams_PPO.action_std_decay_freq
+    max_training_timesteps = hparams_PPO.max_training_timesteps
+    save_model_freq = hparams_PPO.save_model_freq
+    max_ep_len = hparams_PPO.max_ep_len
+    has_continuous_action_space = hparams_PPO.has_continuous_action_space
+    checkpoint_path = hparams_PPO.checkpoint_path
+    env_path = hparams_PPO.env_path
+    visualize_flag = hparams_PPO.visualize
+    if visualize_flag:
+        visualize = utils.Visualization(hparams_world_model)
+    # 3. Real environment
     env = FullyObsWrapper(
-        CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
-                          max_steps=2000,
-                          render_mode="rgb"))
+        CustomEnvFromFile(txt_file_path=env_path, custom_mission="Find the key and open the door.",
+                          max_steps=2000,render_mode="rgb"))
     
     # 4. Initialize training
     i_episode = 0
@@ -138,24 +164,46 @@ def training_agent(cfg: DictConfig):
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
     
+
     # training loop
     while time_step <= max_training_timesteps:
-        state = env.reset()[0]['image']
-        goal_position = find_position(state (8, 1, 0)) # find the goal position
+        state_0 = utils.ColRowCanl_to_CanlRowCol(env.reset()[0]['image'])
+        goal_position_yx = find_position(state_0, (8, 1, 0)) # find the goal position
         current_ep_reward = 0
         for t in range(1, max_ep_len + 1):
             # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
             if t==1:
-                state = normalize(state).to(device)
-            else:
-                state = state.squeeze()
-            action = ppo_agent.select_action(state)
-            state = model(state, torch.tensor(action/hparams.world_model.action_norm_values).to(device).unsqueeze(0))
-            state = state.to(dtype=torch.float32)
+                # state = utils.normalize_obs(state_0, hparams_world_model.obs_norm_values)
+                state_0 = torch.tensor(state_0).to(device)
+                
+        
+            state_norm = utils.normalize_obs(state_0, hparams_world_model.obs_norm_values)
+            action = ppo_agent.select_action(state_norm.flatten()) # state is the dimension of flatten
+            state, action = process_data(state, action, 
+                                         hparams_world_model.attention_mask_size, 
+                                         hparams_world_model.action_norm_values)
+            
+            delta_state_pre, _ = model(state, action)
+            state_pre = state + delta_state_pre
+            # delta_state_pre = delta_state_pre.to(dtype=torch.float32)
             # denorm the state
-            state_denorm = map_obs_to_nearest_value(cfg, state)
+            state_pre_denorm = utils.denormalize_obj(state_pre, hparams_world_model.obs_norm_values)
+
+            state_pre_denorm = utils.map_obs_to_nearest_value(state_pre_denorm, 
+                                                              hparams_world_model.valid_values_obj,
+                                                              hparams_world_model.valid_values_color,
+                                                              hparams_world_model.valid_values_state)
+
+
+            agent_postion_yx = utils.get_agent_position(state_0)
+            state_pre_denorm = utils.put_back_masked_state(state_pre_denorm, state_0, hparams_world_model.attention_mask_size, agent_postion_yx)
+            
+            if visualize_flag:
+                visualize.compare_states(state_0, state_pre_denorm, action, t)
+                
+            state_0 = state_pre_denorm
             # obtain reward from the state representation & done
-            done, reward = get_destination(state_denorm, t, max_ep_len, goal_position)
+            done, reward = get_destination(state_0, t, max_ep_len, goal_position_yx)
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)
@@ -205,12 +253,12 @@ def training_agent(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    use_wandb = True
+    use_wandb = False
     if use_wandb:
         import wandb
 
         wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
-        wandb.init(project='WM PPO', entity='svea41')
+        wandb.init(project='WM Attention PPO', entity='svea41')
 
     training_agent()
 

@@ -1,6 +1,0 @@
-env:
-  # env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
-  visualize: True # to choose whether your want to see the env during interaction or not
-  collect:
-    episodes: 30 # number of episodes to start 
-    data_train: ${oc.env:TRAIN_DATASET_PATH}/gridworld_21_21_30eps.npz # folder where to save the rollouts

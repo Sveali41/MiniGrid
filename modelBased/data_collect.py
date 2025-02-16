@@ -3,15 +3,12 @@ sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from minigrid_custom_env import *
 from minigrid.wrappers import FullyObsWrapper, ImgObsWrapper
 from path import *
-import pandas as pd
-import json
 import hydra
-from modelBased.common.utils import PROJECT_ROOT
-from modelBased.world_model_training import normalize
 from omegaconf import DictConfig, OmegaConf
 import time
 from tqdm import tqdm
 import torch
+from common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -95,11 +92,11 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
             if policy is None:
                 act = np.random.choice(meaningful_actions, p=[0.8, 0.1, 0.1])  # Weighted random sampling
             else:
-                state_norm = normalize(obs['image']).to(device)
+                state_norm = normalize_obs(obs['image']).to(device)
                 act = policy.select_action(state_norm)
 
             # Step in the environment
-            obs_next, reward, done, _, _ = env.step(act)
+            obs_next, reward, done, trunc, _ = env.step(act)
 
             # Collect data
             act_list.append([act])
@@ -119,7 +116,7 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
                 time.sleep(0.1)
 
             # Reset environment on episode end
-            if done:
+            if done or trunc:
                 episodes += 1
                 pbar.update(1)
                 if episodes % 100 == 0:
@@ -148,7 +145,9 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
 
 
 def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done):
-    np.savez_compressed(cfg.collect.data_train, a=obs, b=obs_next, c=act, d=rew, e=done)
+    obs = ColRowCanl_to_CanlRowCol(obs)
+    obs_next = ColRowCanl_to_CanlRowCol(obs_next)
+    np.savez_compressed(cfg.collect.data_save_path, a=obs, b=obs_next, c=act, d=rew, e=done)
 
 def data_augmentation(cfg: DictConfig, obs, obs_next, act, rew, done):
     """
@@ -176,14 +175,16 @@ def data_augmentation(cfg: DictConfig, obs, obs_next, act, rew, done):
 
     return obs_aug, obs_next_aug, act_aug, rew_aug, done_aug
 
-@hydra.main(version_base=None, config_path = str(PROJECT_ROOT / "conf/env"), config_name="config")
+@hydra.main(version_base=None, config_path = str(WORLD_MODEL_PATH / "config"), config_name="config")
 def data_collect(cfg: DictConfig):
-    path = Paths()
-    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE_Rmax2, custom_mission="Find the key "
-                                                                                      "and open the "
-                                                                                      "door.",
-                                        max_steps=2000, render_mode=None))
-    obs, obs_next, act,rew, done = run_env(env, cfg.env)
+    hparam = cfg.env
+    mode =None
+    if hparam.visualize:
+        mode = 'human'
+    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=hparam.env_path, 
+                                        custom_mission="Find the key and open the door.",
+                                        max_steps=4000, render_mode=mode))
+    obs, obs_next, act,rew, done = run_env(env, hparam)
     save_experiments(cfg.env,obs,obs_next, act, rew, done)
 
 if __name__ == "__main__": 

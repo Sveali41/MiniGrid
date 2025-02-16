@@ -7,13 +7,12 @@ import numpy as np
 import gym
 from PPO import PPO
 import hydra
-from modelBased.common.utils import PROJECT_ROOT
+from modelBased.common.utils import PROJECT_ROOT, normalize, map_obs_to_nearest_value
 from omegaconf import DictConfig, OmegaConf
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from path import Paths
 from minigrid.wrappers import FullyObsWrapper
-from modelBased.world_model_training import normalize, map_obs_to_nearest_value
 from minigrid_custom_env import *
 
 # set device to cpu or cuda

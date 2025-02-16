@@ -4,34 +4,8 @@ from typing import Optional
 import dotenv
 from matplotlib import pyplot as plt
 import numpy as np
-import matplotlib.pyplot as plt
-import os
-
-def get_env(env_name: str, default: Optional[str] = None) -> str:
-    if env_name not in os.environ:
-        if default is None:
-            raise KeyError(f"{env_name} not defined and no default value is present!")
-        return default
-
-    env_value: str = os.environ[env_name]
-    if not env_value:
-        if default is None:
-            raise ValueError(
-                f"{env_name} has yet to be configured and no default value is present!"
-            )
-        return default
-
-    return env_value
-
-def load_envs(env_file: Optional[str] = '.env') -> None:
-    dotenv.load_dotenv(dotenv_path=env_file, override=True)
-
-load_envs()
-
-PROJECT_ROOT : Path = Path(get_env("PROJECT_ROOT"))
-GENERATOR_PATH : Path = Path(get_env("GENERATOR_PATH"))
-TRAINER_PATH : Path = Path(get_env("TRAINER_PATH"))
-
+import torch
+from common import utilis_support
 
 def replace_values(arr, old_values, new_values):
     assert arr.ndim >= 2 and len(old_values) == len(new_values)
@@ -50,56 +24,247 @@ def create_mask(state_shape, agent_position, mask_size):
     return mask
 
 def ColRowCanl_to_CanlRowCol(state):
-    state = state.transpose(0, 3, 2, 1)
-    return state
-
-def extract_masked_state(state, agent_position_yx, mask_size):
-    channels, rows, cols = state.shape
-    y, x = agent_position_yx
-    half = mask_size // 2
-    margin_data = state[:, 0, 0]
-    region = np.tile(margin_data.reshape(channels, 1, 1),
-                     (1, mask_size, mask_size))
-
-    src_slice_y = slice(max(y - half, 0), min(y + half + 1, rows))
-    src_slice_x = slice(max(x - half, 0), min(x + half + 1, cols))
-
-    dest_slice_y = slice(max(0, half - y), max(0, half - y) + (min(y + half + 1, rows) - max(y - half, 0)))
-    dest_slice_x = slice(max(0, half - x), max(0, half - x) + (min(x + half + 1, cols) - max(x - half, 0)))
-
-    # 将 state 中的有效区域复制到预填充区域中
-    region[:, dest_slice_y, dest_slice_x] = state[:, src_slice_y, src_slice_x]
-    return region
-
+    if len(state.shape) == 3:
+        dims = (2, 1 ,0)
+    elif len(state.shape) == 4:
+        dims = (0, 3, 2, 1)
+    else:
+        raise ValueError("Input must be a 3D or 4D array.")
     
-def visualize_attention_2d(attn_weights, sample_idx=0, query_idx=0):
-    """
-    可视化指定样本中某个 query token 的注意力分布，
-    将 25 维注意力向量 reshape 成 5×5 的网格。
+    transpose_func = getattr(state, "permute", None) or getattr(state, "transpose", None)  # 如果有permute方法就用permute，否则用transpose
+    if transpose_func:
+        return transpose_func(*dims)
+    else:
+        raise TypeError("Input must be a PyTorch tensor or a NumPy array.")
 
-    参数：
-      attn_weights: Tensor，形状 (B, 25, 25)，例如来自模型输出的注意力权重
-      sample_idx: 选择 batch 中的样本索引
-      query_idx: 选择某个 query token 的索引（0~24），
-                 该索引可映射为 5×5 区域中的 (row, col) = (query_idx//5, query_idx%5)
-    """
-    # 取出指定样本和 query token 对应的注意力向量，形状 (25,)
-    attn_vector = attn_weights[sample_idx, query_idx]  # 例如 shape: (25,)
+def get_agent_position(state):
+    if isinstance(state, torch.Tensor):
+        state = state.detach().cpu().numpy()
+    if len(state.shape) == 3:
+        channel, row, col = state.shape
+        agent_position_index = np.argmax(state[0, :, :])
+        agent_position_yx = np.unravel_index(agent_position_index, (row, col))
+        return agent_position_yx
+
+    elif len(state.shape) == 4:
+        B, channel, row, col = state.shape
+        agent_position_index = np.argmax(state[:, 0, :, :].reshape(B, -1), axis=1)
+        agent_position_yx_batch = np.stack(np.unravel_index(agent_position_index, (row, col)), axis=1)
+        return agent_position_yx_batch
+    else:
+        raise ValueError("Input must be a 3D or 4D array.")
+
+def extract_masked_state(state, mask_size, agent_position_yx):
+    tensor_flag = False
+    if isinstance(state, torch.Tensor):
+        state = state.detach().cpu().numpy()
+        tensor_flag = True
+
+    #区分带batch 和不带batch的情况
+    if len(state.shape) == 3:
+        state_masked = utilis_support.extract_masked_state_support(state, agent_position_yx , mask_size)
+
+    if len(state.shape) == 4:
+        B, channel, row, col = state.shape
+        
+        state_masked = np.zeros((B, channel, mask_size, mask_size), dtype=state.dtype) 
+        for i in range(B):
+            state_masked[i, :, :, :] = utilis_support.extract_masked_state_support(state[i], agent_position_yx[i], mask_size)
+
+    if tensor_flag:
+        state_masked = torch.from_numpy(state_masked).cuda()
+    return state_masked
+
+def put_back_masked_state(state_masked, orginal_state, mask_size, agent_position_yx):
+    tensor_flag = False
+    if isinstance(state_masked, torch.Tensor):
+        state_masked = state_masked.detach().cpu().numpy()
+        tensor_flag = True
     
-    # reshape 为 5×5 矩阵
-    attn_grid = attn_vector.reshape(5, 5).detach().cpu().numpy()
+    if isinstance(orginal_state, torch.Tensor):
+        orginal_state = orginal_state.detach().cpu().numpy()
+        tensor_flag = True
+
+    if len(state_masked.shape) == 3:
+        channels, rows, cols = orginal_state.shape
+        y, x = agent_position_yx
+        half = mask_size // 2
+
+        src_slice_y = slice(max(y - half, 0), min(y + half + 1, rows))
+        src_slice_x = slice(max(x - half, 0), min(x + half + 1, cols))
+
+        dest_slice_y = slice(max(0, half - y), max(0, half - y) + (min(y + half + 1, rows) - max(y - half, 0)))
+        dest_slice_x = slice(max(0, half - x), max(0, half - x) + (min(x + half + 1, cols) - max(x - half, 0)))
+        orginal_state[:, src_slice_y, src_slice_x] = state_masked[:, dest_slice_y, dest_slice_x]
+
+
+
+    if tensor_flag:
+        orginal_state = torch.from_numpy(orginal_state).cuda()
+    return orginal_state
+
+def load_model_weight(model, weight_path, checkpoint_key, freeze=True):
+    try:
+        # 加载 checkpoint
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        checkpoint = torch.load(weight_path)
+        if checkpoint_key in checkpoint:
+            model.load_state_dict(checkpoint[checkpoint_key])
+            model.to(device)
+            model.eval()  # 切换到评估模式
+
+            # 冻结参数
+            if freeze:
+                for param in model.parameters():
+                    param.requires_grad = False
+        else:
+            raise KeyError(f"Key '{checkpoint_key}' not found in the checkpoint.")
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Error: Weight file not found at {weight_path}")
+    except KeyError as e:
+        raise KeyError(f"Error: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error occurred: {e}")
+
+def normalize_obs(x, obs_norm_values):
+    if isinstance(x, np.ndarray):
+        # NumPy array case
+        if not np.issubdtype(x.dtype, np.floating):
+            x = x.astype(np.float32)
+    elif isinstance(x, torch.Tensor):
+        # PyTorch tensor case
+        if not torch.is_floating_point(x):
+            x = x.to(torch.float32)
+    else:
+        raise TypeError("Input must be a NumPy array or PyTorch tensor.")
     
-    plt.figure(figsize=(6, 5))
-    plt.imshow(attn_grid, cmap='viridis')
-    plt.colorbar()
-    plt.title(f'Attention (Sample {sample_idx}, Query token {query_idx}\nGrid loc: ({query_idx//5}, {query_idx%5}))')
-    plt.xlabel('Key Token Grid Column')
-    plt.ylabel('Key Token Grid Row')
-    plt.show()
+    # Normalize based on the dimensionality of x
+    if x.ndim == 3:
+        if obs_norm_values is None or len(obs_norm_values) != x.shape[0]:
+            raise ValueError("Normalization values must be provided and must match the number of channels in the data.")
+        # x is of shape (H, W, C)
+        channel, row, col = x.shape
+        for i in range(channel):
+            max_val = obs_norm_values[i]
+            if max_val != 0:  # Avoid division by zero
+                x[i, :, :] /= max_val
+        # Flatten the data into a 1D vector and convert to a torch tensor
+        x = x.reshape(channel, row, col)
+        
+    elif x.ndim == 4:
+        if obs_norm_values is None or len(obs_norm_values) != x.shape[1]:
+            raise ValueError("Normalization values must be provided and must match the number of channels in the data.")
+        # x is of shape (B, H, W, C)
+        B, channel, row, col = x.shape
+        for i in range(channel):
+            max_val = obs_norm_values[i]
+            if max_val != 0:
+                x[:, i, :, :] /= max_val
+        # Flatten each observation in the batch
+        x = x.reshape(B, channel, row, col)
+    else:
+        raise ValueError("Input must be a 3D or 4D array.")
+    
+    return x
+
+def denormalize_obj(x, obs_norm_values):    
+    # Normalize based on the dimensionality of x
+    if x.ndim == 3:
+        if obs_norm_values is None or len(obs_norm_values) != x.shape[0]:
+            raise ValueError("Normalization values must be provided and must match the number of channels in the data.")
+        # x is of shape (H, W, C)
+        channel, row, col = x.shape
+        for i in range(channel):
+            max_val = obs_norm_values[i]
+            if max_val != 0:  # Avoid division by zero
+                x[i, :, :] *= max_val
+        # Flatten the data into a 1D vector and convert to a torch tensor
+        x = x.reshape(channel, row, col)
+        
+    elif x.ndim == 4:
+        if obs_norm_values is None or len(obs_norm_values) != x.shape[1]:
+            raise ValueError("Normalization values must be provided and must match the number of channels in the data.")
+        # x is of shape (B, H, W, C)
+        B, channel, row, col = x.shape
+        for i in range(channel):
+            max_val = obs_norm_values[i]
+            if max_val != 0:
+                x[:, i, :, :] *= max_val
+        # Flatten each observation in the batch
+        x = x.reshape(B, channel, row, col)
+    else:
+        raise ValueError("Input must be a 3D or 4D array.")
+    return x
+    
+def map_obs_to_nearest_value(obs_denorm, obj_values, color_values, state_values):
+    obs_denorm[0, :, :] = utilis_support.map_to_nearest_value_support(obs_denorm[0, :, :], obj_values)
+    obs_denorm[1, :, :] = utilis_support.map_to_nearest_value_support(obs_denorm[1, :, :], color_values)
+    obs_denorm[2, :, :] = utilis_support.map_to_nearest_value_support(obs_denorm[2, :, :], state_values)
+    return obs_denorm
 
 class Visualization:
     def __init__(self, config=''):
         self.cfg = config
+        if not os.path.exists(self.cfg.save_path):
+            os.mkdir(self.cfg.save_path)
+
+    def compare_states(self, obs, obs_next, act, step_counter=0, saveImage=False, size=(10, 4), shrink=0.5):
+        if isinstance(obs, np.ndarray): 
+            obs = torch.from_numpy(obs).cuda()
+        if isinstance(obs, np.ndarray): 
+            obs_next = torch.from_numpy(obs_next).cuda()
+        plt.close()
+        if obs.max() <= 1:
+            dir_ratio, obj_ratio, act_ratio = 3, 10, 6
+        else:
+            dir_ratio, obj_ratio, act_ratio = 1, 1, 1
+
+        state_image = obs[0, :, :].detach().cpu().numpy() * obj_ratio
+        direction = self.cfg.direction_map[round(obs[2, :, :].detach().cpu().numpy().max() * dir_ratio)]
+
+        state_image_next = obs_next[0, :, :].detach().cpu().numpy() * obj_ratio
+        direction_next = self.cfg.direction_map[round(obs_next[2, :, :].detach().cpu().numpy().max() * dir_ratio)]
+        if act is None:
+            action = "None"
+        else:
+            action = self.cfg.action_map[round(act * act_ratio)]
+    
+        num_colors = 11
+        custom_cmap = plt.cm.get_cmap('jet', num_colors)
+        self._plot_subplot(1, 2, 1, state_image, custom_cmap, 'State', f"Dir: {direction}  Action: {action}", shrink)
+        self._plot_subplot(1, 2, 2, state_image_next, custom_cmap, 'State Pre', f"Dir: {direction_next}", shrink)
+        plt.tight_layout()
+        if saveImage:
+            save_file = os.path.join(self.cfg.save_path, f"Compare_{step_counter}.png")
+            plt.savefig(save_file)
+            plt.close()
+        else:
+            plt.show()
+
+
+
+
+    def visualize_single_state(self, obs, act=None, shrink=1):
+        if isinstance(obs, np.ndarray): 
+            obs = torch.from_numpy(obs).cuda()
+
+        plt.close()
+        if obs.max() <= 1:
+            dir_ratio, obj_ratio, act_ratio = 3, 10, 6
+        else:
+            dir_ratio, obj_ratio, act_ratio = 1, 1, 1
+
+        state_image = obs[0, :, :].detach().cpu().numpy() * obj_ratio
+        direction = self.cfg.direction_map[round(obs[2, :, :].detach().cpu().numpy().max() * dir_ratio)]
+        if act is None:
+            action = "None"
+        else:
+            action = self.cfg.action_map[round(act * act_ratio)]
+    
+        num_colors = 13
+        custom_cmap = plt.cm.get_cmap('jet', num_colors)
+        self._plot(state_image, custom_cmap, f"Dir: {direction}  Act: {action}", shrink)
+
 
     def visualize_attention(self, obs, act, attentionWeight, obs_next, obs_pred, step_counter, size=(14, 10), shrink=1):
         
@@ -151,7 +316,37 @@ class Visualization:
         im = plt.imshow(data, cmap=cmap, interpolation='nearest')
         plt.colorbar(im, shrink=shrink, label=colorbar_label)
         plt.title(title)
+    
+    def _plot(self, data, cmap, title, shrink):
+        plt.imshow(data, cmap=cmap, interpolation='nearest')
+        plt.colorbar(shrink=shrink, label=title)
+        plt.title(title)
+        plt.show()
 
+def get_env(env_name: str, default: Optional[str] = None) -> str:
+    if env_name not in os.environ:
+        if default is None:
+            raise KeyError(f"{env_name} not defined and no default value is present!")
+        return default
+
+    env_value: str = os.environ[env_name]
+    if not env_value:
+        if default is None:
+            raise ValueError(
+                f"{env_name} has yet to be configured and no default value is present!"
+            )
+        return default
+
+    return env_value
+
+def load_envs(env_file: Optional[str] = '.env') -> None:
+    dotenv.load_dotenv(dotenv_path=env_file, override=True)
+
+load_envs()
+PROJECT_ROOT : Path = Path(get_env("PROJECT_ROOT"))
+GENERATOR_PATH : Path = Path(get_env("GENERATOR_PATH"))
+TRAINER_PATH : Path = Path(get_env("TRAINER_PATH"))
+WORLD_MODEL_PATH = Path(get_env("WORLD_MODEL_PATH"))
 
 
 

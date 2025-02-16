@@ -2,21 +2,19 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
-from modelBased.common.utils import get_env
+from modelBased.common.utils import get_env, normalize_obs
 from typing import Tuple, List, Any, Dict, Optional
 # import src.env.run_env_save as env_run_save
 import torch
 from common import utils
 from func_timeout import func_set_timeout
-
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 from typing import Optional
 from func_timeout import func_set_timeout  # Ensure you have this package
-import hydra
-from common.utils import PROJECT_ROOT, get_env
+
 
 def extract_agent_cross_mask(state):
         """
@@ -64,135 +62,53 @@ class WMRLDataset(Dataset):
         self.hparams = hparams
         self.obs_norm_values = hparams.obs_norm_values
         self.act_norm_values = hparams.action_norm_values
-        if self.hparams.model == 'Rmax':
-            self.data = self.make_data_Rmax(loaded)
-        if self.hparams.model == 'Attention':
-            self.data = self.make_data_attention(loaded)
-        else:
-            self.data = self.make_data(loaded)
+        self.data = self.make_data(loaded)
 
-
-    @func_set_timeout(100)
-    def make_data(self, loaded):
-        if not self.hparams.feature_extration_mode == 'discrete':
-            obs = self.normalize(loaded['a'])
-            obs_next = self.normalize(loaded['b'])
-            act = loaded['c'].astype(np.float32) / self.act_norm_values 
-        else:
-            obs = loaded['a']
-            obs_next = loaded['b']
-            act = loaded['c']
-            #  因为要做one hot 所以数据要连续
-            from common import utils
-            obs[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            obs[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
-
-            obs_next[:,:,:,0] = utils.replace_values(obs_next[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            obs_next[:,:,:,1] = utils.replace_values(obs_next[:,:,:,1], np.array([5]), np.array([2]))
-
-        data = {
-            'obs': obs,
-            'obs_next': obs_next,
-            'act': act,
-            # 'done': done
-        }
-        return data
-    
-
-    
     def state_batch_preprocess(self, state):
         obs = np.zeros((state.shape[0], 3, 3, state.shape[-1])) # The mask will extract a 3x3 square around the agent
         for i in range(state.shape[0]):  # Loop over the last dimension (channels)
             obs[i] = extract_agent_cross_mask(state[i])
         return obs
 
-    def make_data_Rmax(self, loaded):
-        obs = self.state_batch_preprocess(loaded['a'])
-        obs = self.normalize(obs)
-        # output is the changes between the current state and the next state
-        obs_delta = self.delta_batch_preprocess(loaded['a'], loaded['b'])
-        act = loaded['c'].astype(np.float32) / self.act_norm_values # Normalize the action with the max 6
-        # done = loaded['d'].astype(int)  # Convert boolean values to binary 0-1
-
-        # Create a dictionary to store processed data
-        data = {
-            'obs': obs,
-            'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
-            'act': act,
-            # 'done': done
-        }
-        return data
-    
-    def make_data_attention(self, loaded):
+    @func_set_timeout(1000)
+    def make_data(self, loaded):
         mask_size = self.hparams.attention_mask_size
-        _, col, row, channel = loaded['a'].shape
+        B, row, col, channel = loaded['a'].shape
+        obs = loaded['a']
+        obs_next = loaded['b']
+        act = loaded['c']
+        
+        if self.hparams.data_type == 'norm':
+            obs = normalize_obs(loaded['a'], self.obs_norm_values)
+            obs_next = normalize_obs(loaded['b'], self.obs_norm_values)
+            act = act.astype(np.float32) / self.act_norm_values 
+            obs_delta = obs_next.astype(np.float32)-obs.astype(np.float32)
 
-
-        if not self.hparams.feature_extration_mode == 'discrete':
-            obs = self.normalize(loaded['a']).reshape(-1, col, row, channel)
-            obs_next = self.normalize(loaded['b']).reshape(-1, col, row, channel)
-            act = loaded['c'].astype(np.float32) / self.act_norm_values 
-        else:
+        elif self.hparams.data_type == 'discrete':
             obs = loaded['a']
             obs_next = loaded['b']
             act = loaded['c']
-            obs[:,:,:,0] = utils.replace_values(obs[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            obs[:,:,:,1] = utils.replace_values(obs[:,:,:,1], np.array([5]), np.array([2]))
+            # obs[:,0,:,:] = utils.replace_values(obs[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
+            # obs[:,1,:,:] = utils.replace_values(obs[:,1,:,:], np.array([5]), np.array([2]))
 
-            obs_next[:,:,:,0] = utils.replace_values(obs_next[:,:,:,0], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            obs_next[:,:,:,1] = utils.replace_values(obs_next[:,:,:,1], np.array([5]), np.array([2]))
+            # obs_next[:,0,:,:] = utils.replace_values(obs_next[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
+            # obs_next[:,1,:,:] = utils.replace_values(obs_next[:,1,:,:], np.array([5]), np.array([2]))
+            obs_delta = obs_next.astype(np.int16)- obs.astype(np.int16)
+        else:
+            raise ValueError(f"Invalid data type: {self.hparams.data_type}")
 
-        obs = utils.ColRowCanl_to_CanlRowCol(obs)
-        obs_next = utils.ColRowCanl_to_CanlRowCol(obs_next)
-        obs_delta = self.delta_batch_preprocess(obs, obs_next, mask_size, channel) 
+        if mask_size > 0:
+            agent_position_yx = utils.get_agent_position(obs)
+            obs_delta = utils.extract_masked_state(obs_delta, mask_size, agent_position_yx)
 
-  
-        # Create a dictionary to store processed data
         data = {
             'obs': obs,
             'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
             'act': act,
-            # 'done': done
         }
         return data
         
 
-    def normalize(self, x):
-        """Normalize the obs data and flatten it."""
-        if not np.issubdtype(x.dtype, np.floating):
-            x = x.astype(np.float32) 
-        
-        # Ensure that the norm_values is not None and has the correct length
-        if self.obs_norm_values is None or len(self.obs_norm_values) != x.shape[-1]:
-            raise ValueError("Normalization values must be provided and must match the number of channels in the data.")
-        
-        # Normalize each channel using the provided norm values
-        for i in range(x.shape[-1]):  # Loop over the last dimension (channels)
-            max_value = self.obs_norm_values[i]
-            if max_value != 0:  # Avoid division by zero
-                x[:, :, :, i] = x[:, :, :, i] / max_value  
-        
-        # Flatten the data
-        x = x.reshape(x.shape[0], -1)
-        return x
-    
-
-    
-    def delta_batch_preprocess(self, state, next_state, mask_size, channel):
-        delta_state = np.zeros((state.shape[0], channel * mask_size * mask_size)) 
-        for i in range(state.shape[0]):
-            delta_state[i] = self.delta_state(state[i], next_state[i], mask_size).reshape(-1)
-        return delta_state
-
-    def delta_state(self, state, next_state, mask_size):
-        if self.hparams.feature_extration_mode == 'discrete':
-            agent_position_yx = np.argwhere(state[0, :, :] == 3)[0]
-            delta_state = next_state.astype(np.int16)-state.astype(np.int16)
-        else:
-            agent_position_yx = np.argwhere(state[0, :, :] == 1)[0]
-            delta_state = next_state.astype(np.float32)-state.astype(np.float32)
-        masked_delta_state = utils.extract_masked_state(delta_state, agent_position_yx, mask_size)
-        return masked_delta_state
 
 
     def __len__(self):
