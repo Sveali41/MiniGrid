@@ -20,13 +20,14 @@ attention_model:
   use_wandb: false
 
   # freeze weights
-  freeze_weight: False  # 置true 会加载权重，不会训练模型，用于验证
+  freeze_weight: true  # 置true 会加载权重，不会训练模型，用于验证
   model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_world_model.ckpt   # 这是整个模型的保存路径 20250213
-  weight_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_weight.ckpt  # 这个是只保存模型的权重 20250213
+  # weight_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_weight.ckpt  # 这个是只保存模型的权重 20250213
+  weight_save_path:  ${oc.env:MODEL_FPATH}/AttentionWM/att-epoch=24-avg_val_loss_wm=0.00002.ckpt
 
   # # plot
   visualization: true       
-  visualize_every: 1000
+  visualize_every: 100
   save_path: ${oc.env:PROJECT_ROOT}/modelBased/visulization
   direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
   action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
