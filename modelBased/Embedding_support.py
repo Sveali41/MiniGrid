@@ -41,14 +41,13 @@ class EmbeddingModule(nn.Module):
             state = state.unsqueeze(0)  # 变为 (1, C, H, W)
             action = torch.tensor([action]).to(state.device)
         B, C, H, W = state.size()
-        assert B == self.batch_size, "batch_size mismatch!"
         
         if self.data_type == 'discrete':
             obj = state[:, 0, :, :]
             color = state[:, 1, :, :]
             dir = state[:, 2, :, :]
-            obj = F.one_hot(obj.reshape(B, -1).long(), num_classes=4)
-            color = F.one_hot(state[:, 1, :, :].reshape(B, -1).long(), num_classes=3)
+            obj = F.one_hot(obj.reshape(B, -1).long(), num_classes=11)
+            color = F.one_hot(state[:, 1, :, :].reshape(B, -1).long(), num_classes=6)
             dir = F.one_hot(state[:, 2, :, :].reshape(B, -1).long(), num_classes=4)
             state_emb = torch.cat([obj, color, dir], dim=-1).float()
             state_emb = state_emb.transpose(1,2).reshape(B, self.input_channel, H, W)

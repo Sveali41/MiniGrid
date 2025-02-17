@@ -103,22 +103,22 @@ def put_back_masked_state(state_masked, orginal_state, mask_size, agent_position
         orginal_state = torch.from_numpy(orginal_state).cuda()
     return orginal_state
 
-def load_model_weight(model, weight_path, checkpoint_key, freeze=True):
+def load_model_weight(model, weight_path, freeze=True):
     try:
         # 加载 checkpoint
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         checkpoint = torch.load(weight_path)
-        if checkpoint_key in checkpoint:
-            model.load_state_dict(checkpoint[checkpoint_key])
-            model.to(device)
-            model.eval()  # 切换到评估模式
+        state_dict = {k.replace("model.", ""): v for k, v in checkpoint["state_dict"].items()}
 
-            # 冻结参数
-            if freeze:
-                for param in model.parameters():
-                    param.requires_grad = False
-        else:
-            raise KeyError(f"Key '{checkpoint_key}' not found in the checkpoint.")
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval()  # 切换到评估模式
+
+        # 冻结参数
+        if freeze:
+            for param in model.parameters():
+                param.requires_grad = False
+
     except FileNotFoundError:
         raise FileNotFoundError(f"Error: Weight file not found at {weight_path}")
     except KeyError as e:
@@ -207,6 +207,7 @@ class Visualization:
         self.cfg = config
         if not os.path.exists(self.cfg.save_path):
             os.mkdir(self.cfg.save_path)
+    
 
     def compare_states(self, obs, obs_next, act, step_counter=0, saveImage=False, size=(10, 4), shrink=0.5):
         if isinstance(obs, np.ndarray): 
@@ -296,7 +297,7 @@ class Visualization:
         
         # Set up colormap for states
         num_colors = 13
-        custom_cmap = plt.cm.get_cmap('gray', num_colors)
+        custom_cmap = plt.cm.get_cmap('jet', num_colors)
         plt.figure(figsize=size)
         self._plot_subplot(2, 2, 1, state_image, custom_cmap, 'State', f"State  Dir: {direction}  Action: {action}", shrink)
         self._plot_subplot(2, 2, 3, heat_map, 'viridis', 'Attention', "Attention Heatmap", shrink)

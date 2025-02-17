@@ -13,7 +13,7 @@ from modelBased.world_model_training import normalize, map_obs_to_nearest_value
 import torch
 from Rmax import RMaxExploration
 from world_model_training import *
-from PPO_world_training import get_destination, find_position
+from modelBased.common.bin.PPO_world_training import get_destination, find_position
 from data_collect import *
 import wandb
 from data.datamodule import extract_agent_cross_mask

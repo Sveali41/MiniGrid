@@ -25,7 +25,7 @@ def train(cfg: DictConfig):
     # Set up logger
     wandb_logger = None
     if use_wandb:
-        wandb_logger = WandbLogger(project="Local Attention Training", log_model=True)
+        wandb_logger = WandbLogger(project="Local_Attention_Training", log_model=True)
         wandb_logger.experiment.watch(net, log='all', log_freq=1000)
     # else:
     #     print("Debug mode enabled. WandB logging is disabled.")
@@ -54,19 +54,20 @@ def train(cfg: DictConfig):
         trainer.validate(net, dataloader)
     else:
         trainer.fit(net, dataloader)
+    # trainer.fit(net, dataloader)
 
     print(type(net.model))
-    savePath = cfg.attention_model.weight_save_path
-    torch.save({
-        'model': net.model.state_dict(),
-    }, savePath)
+    # savePath = cfg.attention_model.weight_save_path
+    # torch.save({
+    #     'model': net.model.state_dict(),
+    # }, savePath)
 
 
-    model_pth = cfg.attention_model.weight_save_path
-    # trainer.save_checkpoint(model_pth)
+    model_pth = cfg.attention_model.model_save_path
+    trainer.save_checkpoint(model_pth)
     if use_wandb:
         wandb.save(str(model_pth))
-        wandb.save(savePath)
+        wandb.save(model_pth)
         
 if __name__ == "__main__":
     train()

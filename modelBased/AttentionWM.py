@@ -9,6 +9,7 @@ from common import utils
 import AttentionWM_support
 import Embedding_support
 import MLP_support
+import pandas as pd
 
     
 class AttentionWorldModel(pl.LightningModule):
@@ -42,7 +43,7 @@ class AttentionWorldModel(pl.LightningModule):
             exit()
 
         if hparams.freeze_weight:
-            utils.load_model_weight(self.model, hparams.weight_save_path, 'model')
+            utils.load_model_weight(self.model, hparams.model_save_path)
         self.loss = nn.SmoothL1Loss()
         self.visual_func = utils.Visualization(hparams)
 
@@ -99,17 +100,37 @@ class AttentionWorldModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         obs, act, obs_next = self.preprocess_batch(batch)
-        obs_pred, _ = self(obs, act)
+        obs_pred, attention_weight = self(obs, act)
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
+        # print(torch.round(obs_pred))
         self.log_dict(loss)
-        # self.log("val_loss", loss['loss_obs'], on_step=False, on_epoch=True, prog_bar=True, logger=False)
-        return {"loss_wm_val": loss['loss_obs']}
+                ## visualization
+        self.step_counter += 1
+        if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
+            self.visual_func.visualize_attention(obs, act, attention_weight, obs_next, obs_pred, self.step_counter)
+        return {"batch_idx": batch_idx, "val_loss": loss['loss_obs']}
+        # return {"loss_wm_val": loss['loss_obs']}
 
     def validation_epoch_end(
         self, outputs: List[Dict[str, torch.Tensor]]
     ) -> Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]:
+
+        losses = [x["val_loss"].item() for x in outputs]
+        df = pd.DataFrame(losses, columns=["val_loss"])
+
+        # 保存为 CSV（不包含 index）
+        df.to_csv("validation_21*21_emb.csv", index=False, header=False)
+        # 绘制 loss 变化曲线
+        # import matplotlib.pyplot as plt
+        # plt.figure(figsize=(8, 5))
+        # plt.plot(batch_indices, losses, marker="o", linestyle="-")
+        # plt.xlabel("Batch Index")
+        # plt.ylabel("Validation Loss")
+        # plt.title("Validation Loss per Batch")
+        # plt.grid(True)
+
         avg_loss = torch.stack([x["loss_wm_val"] for x in outputs]).mean()
         self.log("avg_val_loss_wm", avg_loss)
         return {"avg_val_loss_wm": avg_loss}

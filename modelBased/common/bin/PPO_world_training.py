@@ -85,8 +85,8 @@ def find_position(array, target):
     else:
         return None
 
-def process_data(state, action, maks_size):
-    action = action
+def process_data(state, action, maks_size, action_norm_values):
+    action = action / action_norm_values 
     agent_postion_yx = utils.get_agent_position(state)
     state_masked = utils.extract_masked_state(state, maks_size, agent_postion_yx) 
     return state_masked, action
@@ -116,7 +116,7 @@ def training_agent(cfg: DictConfig):
     else:
         print(f"Model type: {hparams_world_model.model_type} not supported")
         exit()
-    utils.load_model_weight(model, hparams_world_model.model_save_path)
+    utils.load_model_weight(model, hparams_world_model.weight_save_path, 'model')
     
 
 
@@ -140,14 +140,12 @@ def training_agent(cfg: DictConfig):
     checkpoint_path = hparams_PPO.checkpoint_path
     env_path = hparams_PPO.env_path
     visualize_flag = hparams_PPO.visualize
-    env_type =  hparams_PPO.env_type
-
     if visualize_flag:
         visualize = utils.Visualization(hparams_world_model)
     # 3. Real environment
     env = FullyObsWrapper(
         CustomEnvFromFile(txt_file_path=env_path, custom_mission="Find the key and open the door.",
-                          max_steps=4000,render_mode=None))
+                          max_steps=2000,render_mode="rgb"))
     
     # 4. Initialize training
     i_episode = 0
@@ -159,15 +157,9 @@ def training_agent(cfg: DictConfig):
     
     # action space dimension
     if has_continuous_action_space:
-        if env_type == 'empty':
-            action_dim = 2
-        else:
-            action_dim = env.action_space
+        action_dim = env.action_space
     else:
-        if env_type == 'empty':
-            action_dim = 2
-        else:
-            action_dim = env.action_space.n
+        action_dim = env.action_space.n
     state_dim = np.prod(env.observation_space['image'].shape)
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
@@ -175,8 +167,7 @@ def training_agent(cfg: DictConfig):
 
     # training loop
     while time_step <= max_training_timesteps:
-        state_init = env.reset()[0]['image']
-        state_0 = utils.ColRowCanl_to_CanlRowCol(state_init)
+        state_0 = utils.ColRowCanl_to_CanlRowCol(env.reset()[0]['image'])
         goal_position_yx = find_position(state_0, (8, 1, 0)) # find the goal position
         current_ep_reward = 0
         for t in range(1, max_ep_len + 1):
@@ -184,31 +175,33 @@ def training_agent(cfg: DictConfig):
             if t==1:
                 # state = utils.normalize_obs(state_0, hparams_world_model.obs_norm_values)
                 state_0 = torch.tensor(state_0).to(device)
-            
+                
+        
             state_norm = utils.normalize_obs(state_0, hparams_world_model.obs_norm_values)
             action = ppo_agent.select_action(state_norm.flatten()) # state is the dimension of flatten
-            state_masked, action = process_data(state_0.clone(), action, 
-                                         hparams_world_model.attention_mask_size)
+            state, action = process_data(state, action, 
+                                         hparams_world_model.attention_mask_size, 
+                                         hparams_world_model.action_norm_values)
             
-            delta_masked, _ = model(state_masked, action)
-            state_pre_masked = state_masked + delta_masked
+            delta_state_pre, _ = model(state, action)
+            state_pre = state + delta_state_pre
             # delta_state_pre = delta_state_pre.to(dtype=torch.float32)
             # denorm the state
-            # state_pre_denorm = utils.denormalize_obj(state_pre, hparams_world_model.obs_norm_values)
+            state_pre_denorm = utils.denormalize_obj(state_pre, hparams_world_model.obs_norm_values)
 
-            state_pre_masked = utils.map_obs_to_nearest_value(state_pre_masked, 
+            state_pre_denorm = utils.map_obs_to_nearest_value(state_pre_denorm, 
                                                               hparams_world_model.valid_values_obj,
                                                               hparams_world_model.valid_values_color,
                                                               hparams_world_model.valid_values_state)
 
 
             agent_postion_yx = utils.get_agent_position(state_0)
-            state_pre = utils.put_back_masked_state(state_pre_masked, state_0, hparams_world_model.attention_mask_size, agent_postion_yx)
+            state_pre_denorm = utils.put_back_masked_state(state_pre_denorm, state_0, hparams_world_model.attention_mask_size, agent_postion_yx)
             
             if visualize_flag:
-                visualize.compare_states(state_0, state_pre, action, t, True)
+                visualize.compare_states(state_0, state_pre_denorm, action, t)
                 
-            state_0 = state_pre
+            state_0 = state_pre_denorm
             # obtain reward from the state representation & done
             done, reward = get_destination(state_0, t, max_ep_len, goal_position_yx)
             # saving reward and is_terminals
@@ -260,7 +253,7 @@ def training_agent(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    use_wandb = True
+    use_wandb = False
     if use_wandb:
         import wandb
 
