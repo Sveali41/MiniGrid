@@ -3,7 +3,8 @@ wandb/
 outputs/
 
 # Ignore Python bytecode files
-**/__pycache__/
+__pycache__/
+
 
 *.py[cod]
 .env/
