@@ -9,7 +9,6 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 import wandb
 import os
-import torch
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def train(cfg: DictConfig):

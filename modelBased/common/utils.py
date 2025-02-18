@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 import dotenv
@@ -348,6 +349,7 @@ PROJECT_ROOT : Path = Path(get_env("PROJECT_ROOT"))
 GENERATOR_PATH : Path = Path(get_env("GENERATOR_PATH"))
 TRAINER_PATH : Path = Path(get_env("TRAINER_PATH"))
 WORLD_MODEL_PATH = Path(get_env("WORLD_MODEL_PATH"))
+sys.path.append(str(PROJECT_ROOT.resolve()))	
 
 
 

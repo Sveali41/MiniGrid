@@ -2,7 +2,6 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch
 import sys
-sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from path import *
 import pytorch_lightning as pl
 

@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
+from common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT
 from minigrid_custom_env import *
 from minigrid.wrappers import FullyObsWrapper, ImgObsWrapper
 from path import *
@@ -8,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 import time
 from tqdm import tqdm
 import torch
-from common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH
+
 
 # set device to cpu or cuda
 device = torch.device('cpu')
