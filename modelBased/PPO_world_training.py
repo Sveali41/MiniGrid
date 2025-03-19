@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
+from common.utils import PROJECT_ROOT
 from minigrid_custom_env import CustomEnvFromFile
 from minigrid.wrappers import FullyObsWrapper
 import torch
@@ -8,7 +8,7 @@ from PPO import PPO
 import hydra
 from datetime import datetime
 from common import utils
-from common.utils import PROJECT_ROOT
+
 from omegaconf import DictConfig, OmegaConf 
 import AttentionWM_support
 import Embedding_support

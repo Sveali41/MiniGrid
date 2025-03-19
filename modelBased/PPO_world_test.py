@@ -9,8 +9,6 @@ from PPO import PPO
 import hydra
 from modelBased.common.utils import PROJECT_ROOT, normalize, map_obs_to_nearest_value
 from omegaconf import DictConfig, OmegaConf
-import sys
-sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from path import Paths
 from minigrid.wrappers import FullyObsWrapper
 from minigrid_custom_env import *
