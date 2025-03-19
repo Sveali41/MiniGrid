@@ -242,9 +242,6 @@ class Visualization:
         else:
             plt.show()
 
-
-
-
     def visualize_single_state(self, obs, act=None, shrink=1):
         if isinstance(obs, np.ndarray): 
             obs = torch.from_numpy(obs).cuda()
@@ -265,7 +262,6 @@ class Visualization:
         num_colors = 13
         custom_cmap = plt.cm.get_cmap('jet', num_colors)
         self._plot(state_image, custom_cmap, f"Dir: {direction}  Act: {action}", shrink)
-
 
     def visualize_attention(self, obs, act, attentionWeight, obs_next, obs_pred, step_counter, size=(14, 10), shrink=1):
         

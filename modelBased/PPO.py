@@ -12,6 +12,7 @@ import numpy as np
 from minigrid_custom_env import CustomEnvFromFile
 from minigrid.wrappers import FullyObsWrapper
 from path import Paths
+import random
 
 
 
@@ -95,7 +96,25 @@ class ActorCritic(nn.Module):
     def forward(self):
         raise NotImplementedError
 
-    def act(self, state):
+    # def act(self, state):
+
+    #     if self.has_continuous_action_space:
+    #         action_mean = self.actor(state)
+    #         cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
+    #         dist = MultivariateNormal(action_mean, cov_mat)
+    #     else:
+    #         action_probs = self.actor(state)
+    #         dist = Categorical(action_probs)
+
+    #     action = dist.sample()
+    #     action_logprob = dist.log_prob(action)
+    #     state_val = self.critic(state)
+
+    #     return action.detach(), action_logprob.detach(), state_val.detach()
+
+
+    def act(self, state, epsilon=0.1, forward_bias=0.6):
+        state = state.to(device)  # Ensure state is on GPU
 
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
@@ -103,13 +122,44 @@ class ActorCritic(nn.Module):
             dist = MultivariateNormal(action_mean, cov_mat)
         else:
             action_probs = self.actor(state)
+
+            # Normalize action probabilities
+            action_probs = action_probs / action_probs.sum()
+
+            # Move action_probs to GPU
+            action_probs = action_probs.to(device)
+
+            # Create probability distribution
             dist = Categorical(action_probs)
 
-        action = dist.sample()
+            # ---------------------------
+            #  1️. Exploration: Sample a random action (favoring forward)
+            # ---------------------------
+            if random.random() < epsilon:
+                num_actions = len(action_probs)
+                forward_action_index = 2  # Assuming 2 represents "forward" in MiniGrid
+
+                # Create an exploration probability distribution (fully on GPU)
+                explore_probs = torch.ones(num_actions, device=device) * ((1 - forward_bias) / (num_actions - 1))
+                explore_probs[forward_action_index] = forward_bias
+                explore_probs = explore_probs / explore_probs.sum()  # Normalize
+
+                # Sample a random action (EXPLORATION) - Now using `torch.multinomial()`
+                action = torch.multinomial(explore_probs, 1).squeeze(0)  # Sample directly on GPU
+            
+            # ---------------------------
+            #  2. Exploitation: Select action from trained PPO policy
+            # ---------------------------
+            else:
+                action = dist.sample()  # Sample action from PPO-trained policy
+
         action_logprob = dist.log_prob(action)
         state_val = self.critic(state)
 
         return action.detach(), action_logprob.detach(), state_val.detach()
+
+
+
 
     def evaluate(self, state, action):
 

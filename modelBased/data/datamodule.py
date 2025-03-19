@@ -158,7 +158,7 @@ class WMRLDataModule(pl.LightningDataModule):
         return DataLoader(
             self.data_test, 
             batch_size=self.hparams.batch_size, 
-            shuffle=True,
+            shuffle=False,
             drop_last=True,
             num_workers=self.hparams.n_cpu,
             pin_memory=True,

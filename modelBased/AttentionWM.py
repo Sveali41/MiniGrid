@@ -44,11 +44,12 @@ class AttentionWorldModel(pl.LightningModule):
 
         if hparams.freeze_weight:
             utils.load_model_weight(self.model, hparams.model_save_path)
-        self.loss = nn.SmoothL1Loss()
+        self.loss = nn.MSELoss() # nn.SmoothL1Loss()
         self.visual_func = utils.Visualization(hparams)
 
     def forward(self, state, action):
         next_state_pred, attentionWeight = self.model(state, action)
+        
         return next_state_pred, attentionWeight
 
     def loss_function(self, next_observations_predict, next_observations_true):
@@ -90,7 +91,7 @@ class AttentionWorldModel(pl.LightningModule):
         loss = self.loss_function(obs_pred, obs_next)
         self.log_dict(loss)
         # self.log("train_loss", loss['loss_obs'], on_step=True, on_epoch=True, prog_bar=True, logger=False)
-
+        
         ## visualization
         self.step_counter += 1
         if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
@@ -110,18 +111,18 @@ class AttentionWorldModel(pl.LightningModule):
         self.step_counter += 1
         if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
             self.visual_func.visualize_attention(obs, act, attention_weight, obs_next, obs_pred, self.step_counter)
-        return {"batch_idx": batch_idx, "val_loss": loss['loss_obs']}
-        # return {"loss_wm_val": loss['loss_obs']}
+        # return {"batch_idx": batch_idx, "val_loss": loss['loss_obs']}
+        return {"loss_wm_val": loss['loss_obs']}
 
     def validation_epoch_end(
         self, outputs: List[Dict[str, torch.Tensor]]
     ) -> Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]:
 
-        losses = [x["val_loss"].item() for x in outputs]
-        df = pd.DataFrame(losses, columns=["val_loss"])
+        losses = [x["loss_wm_val"].item() for x in outputs]
+        df = pd.DataFrame(losses, columns=["loss_wm_val"])
 
         # 保存为 CSV（不包含 index）
-        df.to_csv("validation_21*21_emb.csv", index=False, header=False)
+        df.to_csv("validation_21*21_emb_mask5.csv", index=False, header=False)
         # 绘制 loss 变化曲线
         # import matplotlib.pyplot as plt
         # plt.figure(figsize=(8, 5))

@@ -160,12 +160,12 @@ def training_agent(cfg: DictConfig):
     # action space dimension
     if has_continuous_action_space:
         if env_type == 'empty':
-            action_dim = 2
+            action_dim = 3
         else:
             action_dim = env.action_space
     else:
         if env_type == 'empty':
-            action_dim = 2
+            action_dim = 3
         else:
             action_dim = env.action_space.n
     state_dim = np.prod(env.observation_space['image'].shape)
@@ -191,7 +191,10 @@ def training_agent(cfg: DictConfig):
                                          hparams_world_model.attention_mask_size)
             
             delta_masked, _ = model(state_masked, action)
+            
             state_pre_masked = state_masked + delta_masked
+            if visualize_flag:
+                visualize.compare_states(state_masked, state_pre_masked, action, t, True)
             # delta_state_pre = delta_state_pre.to(dtype=torch.float32)
             # denorm the state
             # state_pre_denorm = utils.denormalize_obj(state_pre, hparams_world_model.obs_norm_values)
@@ -205,8 +208,7 @@ def training_agent(cfg: DictConfig):
             agent_postion_yx = utils.get_agent_position(state_0)
             state_pre = utils.put_back_masked_state(state_pre_masked, state_0, hparams_world_model.attention_mask_size, agent_postion_yx)
             
-            if visualize_flag:
-                visualize.compare_states(state_0, state_pre, action, t, True)
+
                 
             state_0 = state_pre
             # obtain reward from the state representation & done
