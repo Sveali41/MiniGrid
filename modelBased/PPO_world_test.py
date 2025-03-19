@@ -4,14 +4,16 @@ import time
 from datetime import datetime
 import torch
 import numpy as np
+import pandas as pd
 import gym
-from PPO import PPO
 import hydra
-from modelBased.common.utils import PROJECT_ROOT, normalize, map_obs_to_nearest_value
+from common.utils import PROJECT_ROOT, normalize_obs, map_obs_to_nearest_value
+from PPO import PPO
 from omegaconf import DictConfig, OmegaConf
 from path import Paths
 from minigrid.wrappers import FullyObsWrapper
 from minigrid_custom_env import *
+from common import utils
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -23,7 +25,7 @@ if torch.cuda.is_available():
 else:
     print("Device set to : cpu")
 #################################### Testing ###################################
-@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "conf/model"), config_name="config")
+@hydra.main(version_base=None, config_path= str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def test(cfg: DictConfig):
     print("============================================================================================")
     ################## hyperparameters ##################
@@ -38,7 +40,12 @@ def test(cfg: DictConfig):
     max_ep_len = cfg.PPO.max_ep_len
     render = cfg.PPO.render
     checkpoint_path = cfg.PPO.checkpoint_path
-
+    env_type =  cfg.PPO.env_type
+    obs_norm_values = cfg.attention_model.obs_norm_values
+    visualize_obs = utils.Visualization(cfg.attention_model)
+    visualize_flag = cfg.PPO.visualize
+    csv_output = True
+    data = []
     #####################################################
     # load environment
     path = Paths()
@@ -55,6 +62,16 @@ def test(cfg: DictConfig):
     state_dim = np.prod(env.observation_space['image'].shape)
 
     # initialize a PPO agent
+    if has_continuous_action_space:
+        if env_type == 'empty':
+            action_dim = 3
+        else:
+            action_dim = env.action_space
+    else:
+        if env_type == 'empty':
+            action_dim = 3
+        else:
+            action_dim = env.action_space.n
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std)
 
     # preTrained weights directory
@@ -71,14 +88,22 @@ def test(cfg: DictConfig):
 
     for ep in range(1, total_test_episodes+1):
         ep_reward = 0
-        state = env.reset()[0]
-
-        for _ in range(1, max_ep_len+1):
-            state = normalize(state['image']).to(device)
-            action = ppo_agent.select_action(state)
-            state, reward, done, _, _ = env.step(action)
+        state_init = env.reset()[0]['image']
+        state = utils.ColRowCanl_to_CanlRowCol(state_init)
+        for step in range(1, max_ep_len+1):
+            state_norm = normalize_obs(state, obs_norm_values)
+            if isinstance(state_norm, np.ndarray):
+                state_norm = torch.tensor(state_norm, dtype=torch.float32).to(device)
+            action = ppo_agent.select_action(state_norm.flatten())
+            state_next, reward, done, _, _ = env.step(action)
             ep_reward += reward
-
+            state_next = utils.ColRowCanl_to_CanlRowCol(state_next['image'])
+            if visualize_flag:
+                print(f'Episode: {ep} \t Step: {step} \t Reward: {round(ep_reward, 2)}')
+                visualize_obs.compare_states(state, state_next, action, f'ep:{ep} step:{step}', True)
+            
+            state = state_next
+                
             if render:
                 env.render()
 
@@ -89,8 +114,14 @@ def test(cfg: DictConfig):
         ppo_agent.buffer.clear()
 
         test_running_reward +=  ep_reward
-        print('Episode: {} \t\t Reward: {}'.format(ep, round(ep_reward, 2)))
+        print(f'Episode: {ep} \t\t Reward: {round(ep_reward, 2)}')
+        
+        if csv_output:
+            data.append(ep_reward)
         ep_reward = 0
+    if csv_output:
+        df = pd.DataFrame(data, columns=["reward"])
+        df.to_csv("test_PPO_reward.csv", index=False, header=True)
 
     env.close()
 
@@ -104,5 +135,4 @@ def test(cfg: DictConfig):
 
 
 if __name__ == '__main__':
-
     test()

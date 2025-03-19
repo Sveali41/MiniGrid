@@ -64,7 +64,7 @@ PPO:
   save_model_freq: 2e4
   render: True
   env_path: ${oc.env:ENV_PATH}/Grid_8_8_empty.txt
-  visualize: False
+  visualize: false
 
 test_env:
   visualize: False

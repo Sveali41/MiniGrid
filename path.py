@@ -3,7 +3,7 @@ import os
 
 class Paths:
     ROOT = os.path.dirname(__file__)
-    LEVEL_FILE = os.path.join(ROOT, "level/simple_test_corridor_long.txt")
+    LEVEL_FILE = os.path.join(ROOT, "level//Grid_8_8_empty.txt")
     LEVEL_FILE_Rmax = os.path.join(ROOT, "level/empty.txt")
     LEVEL_FILE_Rmax2 = os.path.join(ROOT, "level/Grid_21_21_empty.txt")
     EXPERIMENT_RESULT = os.path.join(ROOT, 'experiment_MF/result')

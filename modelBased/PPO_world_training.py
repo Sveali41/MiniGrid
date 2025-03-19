@@ -257,12 +257,11 @@ def training_agent(cfg: DictConfig):
         print_running_episodes += 1
 
         i_episode += 1
-
     env.close()
 
 
 if __name__ == "__main__":
-    use_wandb = True
+    use_wandb = False
     if use_wandb:
         import wandb
 

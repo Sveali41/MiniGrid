@@ -213,7 +213,7 @@ class Visualization:
     def compare_states(self, obs, obs_next, act, step_counter=0, saveImage=False, size=(10, 4), shrink=0.5):
         if isinstance(obs, np.ndarray): 
             obs = torch.from_numpy(obs).cuda()
-        if isinstance(obs, np.ndarray): 
+        if isinstance(obs_next, np.ndarray): 
             obs_next = torch.from_numpy(obs_next).cuda()
         plt.close()
         if obs.max() <= 1:
