@@ -351,13 +351,13 @@ def training_agent(env, path):
     has_continuous_action_space = False
 
     # state space dimension
-    state_dim = np.prod(env_0.observation_space['image'].shape)
+    state_dim = np.prod(env.observation_space['image'].shape)
 
     # action space dimension
     if has_continuous_action_space:
-        action_dim = env_0.action_space
+        action_dim = env.action_space
     else:
-        action_dim = env_0.action_space.n
+        action_dim = env.action_space.n
 
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)

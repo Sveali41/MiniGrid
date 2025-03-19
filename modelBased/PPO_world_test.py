@@ -1,7 +1,3 @@
-import os
-import glob
-import time
-from datetime import datetime
 import torch
 import numpy as np
 import pandas as pd
@@ -10,7 +6,6 @@ import hydra
 from common.utils import PROJECT_ROOT, normalize_obs, map_obs_to_nearest_value
 from PPO import PPO
 from omegaconf import DictConfig, OmegaConf
-from path import Paths
 from minigrid.wrappers import FullyObsWrapper
 from minigrid_custom_env import *
 from common import utils
@@ -44,12 +39,12 @@ def test(cfg: DictConfig):
     obs_norm_values = cfg.attention_model.obs_norm_values
     visualize_obs = utils.Visualization(cfg.attention_model)
     visualize_flag = cfg.PPO.visualize
-    csv_output = True
+    env_path = cfg.PPO.env_path
+    csv_output = False
     data = []
     #####################################################
     # load environment
-    path = Paths()
-    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key "
+    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_path, custom_mission="Find the key "
                                                                                       "and open the "
                                                                                       "door.",
                                         max_steps=2000, render_mode=None))
@@ -95,7 +90,7 @@ def test(cfg: DictConfig):
             if isinstance(state_norm, np.ndarray):
                 state_norm = torch.tensor(state_norm, dtype=torch.float32).to(device)
             action = ppo_agent.select_action(state_norm.flatten())
-            state_next, reward, done, _, _ = env.step(action)
+            state_next, reward, done, trunc, _ = env.step(action)
             ep_reward += reward
             state_next = utils.ColRowCanl_to_CanlRowCol(state_next['image'])
             if visualize_flag:
@@ -107,7 +102,7 @@ def test(cfg: DictConfig):
             if render:
                 env.render()
 
-            if done:
+            if done or trunc:
                 break
 
         # clear buffer
