@@ -134,8 +134,9 @@ class CustomEnvFromFile(MiniGridEnv):
             self.agent_pos = self.agent_start_pos
         else:
             # Define the assigned area for the agent start (top-left (x1, y1), bottom-right (x2, y2))
-            x1, y1 = 5, 1
-            x2, y2 = 7, 4
+            x1, y1 = 1, 1  # Expand to the top-left area
+            x2, y2 = self.width - 2, self.height - 2  # Extend to cover most of the environment
+
 
             # Randomly assign a starting position within the defined area
             if self.rand_agent_start_pos:

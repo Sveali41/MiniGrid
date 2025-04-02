@@ -46,7 +46,7 @@ env:
 PPO:
   env_type: empty # empty, with obj
   has_continuous_action_space: False
-  max_ep_len: 500  # max timesteps in one episode
+  max_ep_len: 5000  # max timesteps in one episode
   action_std: 0.1  # set same std for action distribution which was used while saving
   i_episode: 0
   K_epochs: 80  # update policy for K epochs
@@ -54,17 +54,24 @@ PPO:
   gamma: 0.99  # discount factor
   lr_actor: 0.0003  # learning rate for actor
   lr_critic: 0.001  # learning rate for critic
-  checkpoint_path: ${oc.env:MODEL_FPATH}/policy_model.ckpt
+  checkpoint_path: ${oc.env:MODEL_FPATH}/policy_model_21_21.ckpt
   time_step: 0
-  max_training_timesteps: 1.2e5
+  max_training_timesteps: 1.5e6 #1.2e5
   # max_training_timesteps: 3e5
   action_std_decay_freq: 2.5e5
   action_std_decay_rate: 0.05
   min_action_std: 0.1
   save_model_freq: 2e4
+  ########################################
+  # test
+  total_test_episodes: 1000
   render: True
-  env_path: ${oc.env:ENV_PATH}/Grid_8_8_empty.txt
+  env_path: ${oc.env:ENV_PATH}/Grid_21_21_empty.txt
   visualize: false
+  save_gif: True
+  save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
+  save_csv: True
+  save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
 
 test_env:
   visualize: False

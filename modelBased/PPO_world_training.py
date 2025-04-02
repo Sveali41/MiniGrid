@@ -261,7 +261,7 @@ def training_agent(cfg: DictConfig):
 
 
 if __name__ == "__main__":
-    use_wandb = False
+    use_wandb = True
     if use_wandb:
         import wandb
 
