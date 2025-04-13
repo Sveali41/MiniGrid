@@ -6,7 +6,7 @@ import dotenv
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
-from common import utilis_support
+from . import utilis_support
 
 def replace_values(arr, old_values, new_values):
     assert arr.ndim >= 2 and len(old_values) == len(new_values)

@@ -1,5 +1,5 @@
 import sys
-from common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT
+from .common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT
 from minigrid_custom_env import *
 from minigrid.wrappers import FullyObsWrapper, ImgObsWrapper
 from path import *
@@ -181,7 +181,7 @@ def data_collect(cfg: DictConfig):
     mode =None
     if hparam.visualize:
         mode = 'human'
-    env = FullyObsWrapper(CustomEnvFromFile(txt_file_path=hparam.env_path, 
+    env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path=hparam.env_path, 
                                         custom_mission="Find the key and open the door.",
                                         max_steps=4000, render_mode=mode))
     obs, obs_next, act,rew, done = run_env(env, hparam)

@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+
 def map_to_nearest_value_support(tensor, valid_values):
     valid_values = torch.tensor(valid_values, dtype=torch.float32).to(tensor.device)
     tensor = tensor.unsqueeze(-1)  # Add a dimension to compare with valid values

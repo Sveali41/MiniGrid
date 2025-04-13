@@ -6,7 +6,7 @@ from modelBased.common.utils import get_env, normalize_obs
 from typing import Tuple, List, Any, Dict, Optional
 # import src.env.run_env_save as env_run_save
 import torch
-from common import utils
+from modelBased.common import utils
 from func_timeout import func_set_timeout
 import numpy as np
 import torch

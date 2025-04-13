@@ -8,6 +8,8 @@ from path import *
 from PIL import Image, ImageDraw
 from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper
 import numpy as np  # Ensure numpy is imported
+import textwrap
+
 
 def char_to_color(char: str) -> Optional[str]:
     """
@@ -19,17 +21,18 @@ def char_to_color(char: str) -> Optional[str]:
     Returns:
         Optional[str]: The name of the color, or None if the character is not recognized.
     """
-    color_map = {'R': 'red', 'G': 'green', 'B': 'blue', 'Y': 'yellow', 'M': 'magenta', 'C': 'cyan'}
+    color_map = {'R': 'red', 'G': 'green', 'B': 'blue',
+                'Y': 'yellow', 'M': 'magenta', 'C': 'cyan'}
     return color_map.get(char.upper(), None)
 
 
-def char_to_object(char: str, color: str) -> Optional[WorldObj]:
+def char_to_object(char: str, color: Optional[str] = None) -> Optional[WorldObj]:
     """
     Maps a character (and its associated color) to a MiniGrid object.
 
     Args:
         char (str): A character representing an object type.
-        color (str): The color of the object.
+        color (Optional[str]): The color of the object.
 
     Returns:
         Optional[WorldObj]: The MiniGrid object corresponding to the character and color, or None if unrecognized.
@@ -49,13 +52,15 @@ def char_to_object(char: str, color: str) -> Optional[WorldObj]:
     return constructor() if constructor else None
 
 
-class CustomEnvFromFile(MiniGridEnv):
+class CustomMiniGridEnv(MiniGridEnv):
     """
-    A custom MiniGrid environment that loads its layout and object properties from a text file.
+    A custom MiniGrid environment that can load its layout and object properties from a text file or directly from strings.
 
     Attributes:
-        txt_file_path (str): Path to the text file containing the environment layout.
-        layout_size (int): The size of the environment, either specified or determined from the file.
+        txt_file_path (Optional[str]): Path to the text file containing the environment layout.
+        layout_str (Optional[str]): String representing the environment layout.
+        color_str (Optional[str]): String representing the environment colors.
+        layout_size (int): The size of the environment, either specified or determined from the input.
         agent_start_pos (tuple[int, int]): Starting position of the agent.
         agent_start_dir (int): Initial direction the agent is facing. None for random direction
         mission (str): Custom mission description.
@@ -63,7 +68,9 @@ class CustomEnvFromFile(MiniGridEnv):
 
     def __init__(
             self,
-            txt_file_path: str,
+            txt_file_path: Optional[str] = None,
+            layout_str: Optional[str] = None,
+            color_str: Optional[str] = None,
             size: Optional[int] = None,
             agent_start_pos: Optional[tuple[int, int]] = None,  # Allow None for random initialization
             agent_start_dir: Optional[int] = None,  # Allow None for random initialization
@@ -74,14 +81,33 @@ class CustomEnvFromFile(MiniGridEnv):
         """
         Initializes the custom environment.
 
-        If 'size' is not specified, it determines the size based on the content of the given text file.
+        If 'txt_file_path' is provided, it reads the layout from the file.
+        Otherwise, it uses 'layout_str' and 'color_str' for layout and colors.
+
+        Args:
+            txt_file_path (Optional[str]): Path to the text file containing the environment layout.
+            layout_str (Optional[str]): String representing the environment layout.
+            color_str (Optional[str]): String representing the environment colors.
+            size (Optional[int]): The size of the environment grid. If not provided, determined from input.
+            agent_start_pos (Optional[tuple[int, int]]): Starting position of the agent.
+            agent_start_dir (Optional[int]): Initial direction the agent is facing. If None, random direction.
+            custom_mission (str): Custom mission description.
+            max_steps (Optional[int]): Maximum number of steps in an episode.
+            **kwargs: Additional keyword arguments for MiniGridEnv.
         """
         self.txt_file_path = txt_file_path
+        self.layout_str = layout_str
+        self.color_str = color_str
         self.s_positions = []  # List to store positions of 'S'
 
         # Determine the size of the environment if not provided
         if size is None:
-            self.height, self.width = self.determine_layout_size()
+            if txt_file_path:
+                self.height, self.width = self.determine_layout_size_from_file()
+            elif layout_str and color_str:
+                self.height, self.width = self.determine_layout_size_from_strings()
+            else:
+                raise ValueError("Either 'txt_file_path' or both 'layout_str' and 'color_str' must be provided.")
         else:
             self.height, self.width = size, size  # Assume square grid if size is provided
 
@@ -104,7 +130,7 @@ class CustomEnvFromFile(MiniGridEnv):
         # Mission or objects within the environment
         self.mission = custom_mission
 
-    def determine_layout_size(self) -> Tuple[int, int]:
+    def determine_layout_size_from_file(self) -> Tuple[int, int]:
         """
         Reads the layout from the file to determine the environment's size based on its width and height.
 
@@ -119,12 +145,28 @@ class CustomEnvFromFile(MiniGridEnv):
             width = max(len(line) for line in layout_lines)
             return height, width
 
+    def determine_layout_size_from_strings(self) -> Tuple[int, int]:
+        """
+        Determines the environment's size based on layout and color strings.
+
+        Returns:
+            Tuple[int, int]: The height and width of the layout.
+        """
+        layout_lines = self.layout_str.strip().split('\n')
+        color_lines = self.color_str.strip().split('\n')
+        height = len(layout_lines)
+        width = max(len(line) for line in layout_lines)
+        return height, width
+
     def _gen_grid(self, width: int, height: int) -> None:
         """
-        Generates the grid for the environment based on the layout specified in the text file.
+        Generates the grid for the environment based on the layout specified in the file or strings.
         """
         self.grid = Grid(width, height)
-        self.read_layout_from_file()
+        if self.txt_file_path:
+            self.read_layout_from_file()
+        else:
+            self.read_layout_from_strings()
 
         # If 'S' positions are specified in the layout, use them as the agent's starting positions
         if self.s_positions:
@@ -133,14 +175,15 @@ class CustomEnvFromFile(MiniGridEnv):
             self.agent_dir = self.agent_start_dir if not self.rand_agent_start_dir else np.random.randint(0, 4)
             self.agent_pos = self.agent_start_pos
         else:
-            # Define the assigned area for the agent start (top-left (x1, y1), bottom-right (x2, y2))
-            x1, y1 = 1, 1  # Expand to the top-left area
-            x2, y2 = self.width - 2, self.height - 2  # Extend to cover most of the environment
+            # Find all 'E' positions (empty spots)
+            empty_positions = [(x, y) for x in range(self.width) for y in range(self.height) 
+                            if self.grid.get(x, y) is None]
+            
+            if not empty_positions:
+                raise ValueError("No empty position found marked with 'E'.")
 
-
-            # Randomly assign a starting position within the defined area
-            if self.rand_agent_start_pos:
-                self.agent_start_pos = self.find_empty_position_in_area(x1, y1, x2, y2)
+            # Randomly assign a starting position within the 'E' positions
+            self.agent_start_pos = empty_positions[np.random.randint(0, len(empty_positions))]
 
             # Set direction (could be random or predefined)
             if self.rand_agent_start_dir:
@@ -163,13 +206,17 @@ class CustomEnvFromFile(MiniGridEnv):
         Returns:
             Tuple[int, int]: Coordinates of an empty position.
         """
-        while True:
+        attempts = 0
+        max_attempts = 100
+        while attempts < max_attempts:
             # Randomly pick a position within the area
             x = np.random.randint(x1, x2 + 1)
             y = np.random.randint(y1, y2 + 1)
 
             if self.grid.get(x, y) is None:
                 return (x, y)
+            attempts += 1
+        raise ValueError("No empty position found in the specified area after multiple attempts.")
 
     def read_layout_from_file(self) -> None:
         """
@@ -194,15 +241,40 @@ class CustomEnvFromFile(MiniGridEnv):
                         self.s_positions.append((x, y))
                         # Set 'S' as Floor with specified color
                         color = char_to_color(color_char)
-                        obj = char_to_object(char, color)
-                        if color:
-                            obj.color = color
+                        obj = Floor()
                         self.grid.set(x, y, obj)
                         continue  # 'S' is handled
                     color = char_to_color(color_char)
                     obj = char_to_object(char, color)
                     if obj:
                         self.grid.set(x, y, obj)  # Place the object on the grid
+
+    def read_layout_from_strings(self) -> None:
+        """
+        Parses the provided layout and color strings to set the objects in the environment's grid.
+        """
+        layout_lines = self.layout_str.strip().split('\n')
+        color_lines = self.color_str.strip().split('\n')
+
+        if len(layout_lines) != len(color_lines):
+            raise ValueError("Layout and color strings must have the same number of lines.")
+
+        for y, (layout_line, color_line) in enumerate(zip(layout_lines, color_lines)):
+            if len(layout_line) != len(color_line):
+                raise ValueError("Each layout line must correspond to a color line of the same length.")
+            for x, (char, color_char) in enumerate(zip(layout_line, color_line)):
+                if char.upper() == 'S':
+                    # Record 'S' position as agent's start position
+                    self.s_positions.append((x, y))
+                    # Set 'S' as Floor with specified color
+                    color = char_to_color(color_char)
+                    obj = Floor()
+                    self.grid.set(x, y, obj)
+                    continue  # 'S' is handled
+                color = char_to_color(color_char)
+                obj = char_to_object(char, color)
+                if obj:
+                    self.grid.set(x, y, obj)  # Place the object on the grid
 
     def find_empty_position(self) -> Tuple[int, int]:
         """
@@ -221,13 +293,41 @@ class CustomEnvFromFile(MiniGridEnv):
 
 
 if __name__ == "__main__":
-    # Example usage of the CustomEnvFromFile class
+    # Example usage of the CustomMiniGridEnv class with file input
     path = Paths()
-    env = FullyObsWrapper(CustomEnvFromFile(
-        txt_file_path=path.LEVEL_FILE_Rmax,
-        custom_mission="Find the key and open the door.",
+    # env_file_based = FullyObsWrapper(CustomMiniGridEnv(
+    #     txt_file_path=path.LEVEL_FILE_Rmax,
+    #     custom_mission="Find the key and open the door.",
+    #     render_mode="human"
+    # ))
+
+    # Example usage of the CustomMiniGridEnv class with direct string input
+    layout_string = textwrap.dedent("""
+        WWWWWWWWW
+        WEEEKEEEW
+        WEWEWEWEW
+        WEEESEEEW
+        WWWWWWWWW
+    """).strip()
+
+    color_string = textwrap.dedent("""
+        WWWWWWWWW
+        WEEEYEEEW
+        WEWEWEWEW
+        WEEESEEEW
+        WWWWWWWWW
+    """).strip()
+
+    env_string_based = FullyObsWrapper(CustomMiniGridEnv(
+        layout_str=layout_string,
+        color_str=color_string,
+        custom_mission="Navigate to the start position.",
         render_mode="human"
     ))
-    env.reset()
-    manual_control = ManualControl(env)  # Allows manual control for testing and visualization
+ 
+    # Choose which environment to run
+    selected_env = env_string_based  # Change to env_string_based to use string input
+
+    selected_env.reset()
+    manual_control = ManualControl(selected_env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface

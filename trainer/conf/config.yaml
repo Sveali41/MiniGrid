@@ -1,0 +1,47 @@
+# 1. load the generator
+training_generator:
+  # data 
+  map_width: 6
+  map_height: 6
+  data_dir: ${oc.env:GENERATOR_PATH}/data/dataset/generated_data_final.json
+  batch_size: 1
+  n_cpu: 8
+  # model
+  z_shape: 128
+  generator: "deconv"
+  n_epochs: 10
+  lr: 1e-4
+  wd : 0.0
+  pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifer.ckpt #${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
+  validation_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt 
+  map_element: {'E': 0, 'W': 1, 'K': 2, 'D': 3, 'S': 4, 'G': 5}
+  # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
+  env_path: ${oc.env:TRAINER_PATH}/level/level.txt
+  use_wandb: False
+
+# 2.collect data from the generated env
+env:
+  # env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
+  visualize: False # to choose whether your want to see the env during interaction or not
+  collect:
+    episodes: 100 # number of episodes to start 
+    data_train: ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz # folder where to save the rollouts
+
+world_model:
+  action_size: 1
+  batch_size: 64
+  n_cpu: 8
+  hidden_size: 256 #hidden size
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full.npz
+  n_epochs: 100 # number of training epochs
+  obs_size: 54 # height * width * channels = 6 * 3 * 3
+  lr: 1e-3
+  wd: 1e-5
+  # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
+  pth_folder: ${oc.env:PTH_FOLDER}/wm-epoch=89-avg_val_loss_wm=0.0001.ckpt 
+  obs_norm_values: [10, 5, 3]
+  action_norm_values: 6
+  valid_values_obj: [1, 2, 4, 5, 8, 10]
+  valid_values_color: [0, 1, 5]
+  valid_values_state: [0, 1, 2, 3]
+  model: None
