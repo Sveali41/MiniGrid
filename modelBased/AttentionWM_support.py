@@ -93,8 +93,8 @@ class AttentionModule(nn.Module):
             color = state[:, 1, :, :]
             dir = state[:, 2, :, :]
             obj = F.one_hot(obj.reshape(B, -1).long(), num_classes=11)
-            color = F.one_hot(state[:, 1, :, :].reshape(B, -1).long(), num_classes=6)
-            dir = F.one_hot(state[:, 2, :, :].reshape(B, -1).long(), num_classes=4)
+            color = F.one_hot(color.reshape(B, -1).long(), num_classes=6)
+            dir = F.one_hot(dir.reshape(B, -1).long(), num_classes=4)
             state_emb = torch.cat([obj, color, dir], dim=-1).float()
             state_emb = state_emb.transpose(1,2).reshape(B, self.input_channel, H, W)
             action_emb = self.action_embedding(action)

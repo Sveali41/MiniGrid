@@ -9,7 +9,7 @@ training_generator:
   # model
   z_shape: 128
   generator: "deconv"
-  n_epochs: 10
+  n_epochs: 200
   lr: 1e-4
   wd : 0.0
   pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifer.ckpt #${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
@@ -18,30 +18,84 @@ training_generator:
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
   use_wandb: False
+  
 
 # 2.collect data from the generated env
 env:
   # env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
   visualize: False # to choose whether your want to see the env during interaction or not
   collect:
-    episodes: 100 # number of episodes to start 
-    data_train: ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz # folder where to save the rollouts
+    episodes: 400  # 500 number of episodes to start 
+    data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
 
-world_model:
-  action_size: 1
-  batch_size: 64
+# 3. attension model
+attention_model:
+  data_type: discrete # 'norm' or 'discrete'  # 这两种类型效果都还不错 20250213
+  model_type: Attention       # Attention, Embedding, MLP
+  grid_shape: [3, 0, 0]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
+  attention_mask_size: 3
+  batch_size: 128  # test 64/128/256
   n_cpu: 8
-  hidden_size: 256 #hidden size
-  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_full.npz
-  n_epochs: 100 # number of training epochs
-  obs_size: 54 # height * width * channels = 6 * 3 * 3
-  lr: 1e-3
+  embed_dim: 128  # 128 64/128/256
+  num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
+  data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
+  n_epochs: 15   # 20
+  lr: 1e-4
   wd: 1e-5
-  # pth_folder: ${oc.env:PTH_FOLDER}/world_model.ckpt
-  pth_folder: ${oc.env:PTH_FOLDER}/wm-epoch=89-avg_val_loss_wm=0.0001.ckpt 
-  obs_norm_values: [10, 5, 3]
-  action_norm_values: 6
-  valid_values_obj: [1, 2, 4, 5, 8, 10]
+  obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
+  action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
+  valid_values_obj: [1, 2, 4, 5, 8, 10]                                                             
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
-  model: None
+  use_wandb: False
+
+  # freeze weights
+  freeze_weight: False  # 置true 会加载权重，不会训练模型，用于验证
+  # model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_world_model.ckpt   # 这是整个模型的保存路径 20250213
+  model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_world_model.ckpt
+
+  # plot
+  visualization: False      
+  visualize_every: 5
+  save_path: ${oc.env:TRAINER_PATH}/visulization
+  direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
+  action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
+
+  # 4. PPO model for final task
+PPO:
+  env_path: ${oc.env:TRAINER_PATH}/level/final_task.txt
+  env_type: empty # empty, with obj
+  has_continuous_action_space: False
+  max_ep_len: 14000  # max timesteps in one episode 8000
+  action_std: 0.1  # set same std for action distribution which was used while saving
+  i_episode: 0
+  K_epochs: 80  # update policy for K epochs
+  eps_clip: 0.2  # clip parameter for PPO
+  gamma: 0.99  # discount factor
+  lr_actor: 0.0003  # learning rate for actor
+  lr_critic: 0.001  # learning rate for critic
+  checkpoint_path: ${oc.env:MODEL_FPATH}/policy_final_task.ckpt
+  time_step: 0
+  max_training_timesteps: 1e6 #1.5e5
+  # max_training_timesteps: 3e5
+  action_std_decay_freq: 2.5e5
+  action_std_decay_rate: 0.05
+  min_action_std: 0.1
+  save_model_freq: 2e4
+  ########################################
+  # test
+  total_test_episodes: 1000
+  render: True
+  visualize: false
+  save_gif: True
+  save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
+  save_csv: True
+  save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
+  use_wandb: True
+
+
+test_env:
+  visualize: False
+  time_limit: 256 #max number of steps for each rollout 600
+  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 #MiniGrid-Empty-5x5-v0 #MiniGrid-Empty-8x8-v0 #MiniGrid-Empty-Random-6x6-v0 
+  n_rollouts: 1000

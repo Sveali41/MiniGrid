@@ -293,41 +293,54 @@ class CustomMiniGridEnv(MiniGridEnv):
 
 
 if __name__ == "__main__":
-    # Example usage of the CustomMiniGridEnv class with file input
-    path = Paths()
-    # env_file_based = FullyObsWrapper(CustomMiniGridEnv(
-    #     txt_file_path=path.LEVEL_FILE_Rmax,
-    #     custom_mission="Find the key and open the door.",
+    ## 1. generate env from string
+    # # Example usage of the CustomMiniGridEnv class with file input
+    # path = Paths()
+    # # env_file_based = FullyObsWrapper(CustomMiniGridEnv(
+    # #     txt_file_path=path.LEVEL_FILE_Rmax,
+    # #     custom_mission="Find the key and open the door.",
+    # #     render_mode="human"
+    # # ))
+
+    # # Example usage of the CustomMiniGridEnv class with direct string input
+    # layout_string = textwrap.dedent("""
+    #     WWWWWWWWW
+    #     WEEEEEEOW
+    #     WEWEWEWGW
+    #     WEEEEEEEW
+    #     WWWWWWWWW
+    # """).strip()
+
+    # color_string = textwrap.dedent("""
+    #     WWWWWWWWW
+    #     WEEEEEEYW
+    #     WEWEWEWEW
+    #     WEEEEEEEW
+    #     WWWWWWWWW
+    # """).strip()
+
+    # env_string_based = FullyObsWrapper(CustomMiniGridEnv(
+    #     layout_str=layout_string,
+    #     color_str=color_string,
+    #     custom_mission="Navigate to the start position.",
     #     render_mode="human"
     # ))
-
-    # Example usage of the CustomMiniGridEnv class with direct string input
-    layout_string = textwrap.dedent("""
-        WWWWWWWWW
-        WEEEKEEEW
-        WEWEWEWEW
-        WEEESEEEW
-        WWWWWWWWW
-    """).strip()
-
-    color_string = textwrap.dedent("""
-        WWWWWWWWW
-        WEEEYEEEW
-        WEWEWEWEW
-        WEEESEEEW
-        WWWWWWWWW
-    """).strip()
-
-    env_string_based = FullyObsWrapper(CustomMiniGridEnv(
-        layout_str=layout_string,
-        color_str=color_string,
-        custom_mission="Navigate to the start position.",
-        render_mode="human"
-    ))
  
-    # Choose which environment to run
-    selected_env = env_string_based  # Change to env_string_based to use string input
+    # # Choose which environment to run
+    # selected_env = env_string_based  # Change to env_string_based to use string input
 
-    selected_env.reset()
-    manual_control = ManualControl(selected_env)  # Allows manual control for testing and visualization
+    # # selected_env.reset()
+    # obs = selected_env.reset()[0]
+    # obs_next, reward, done, trunc, _ = selected_env.step(0)
+    # manual_control = ManualControl(selected_env)  # Allows manual control for testing and visualization
+    # manual_control.start()  # Start the manual control interface
+
+
+
+    # 2. generate env from text file
+    env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task.txt', 
+                                        custom_mission="Find the key and open the door.",
+                                        max_steps=5000, render_mode='human'))
+    manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
+    

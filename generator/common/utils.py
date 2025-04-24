@@ -2,6 +2,8 @@ import torch
 import sys  
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
 from generator.gen import GAN
+import random
+import re
 
 def load_gen(cfg):
     hparams = cfg
@@ -53,22 +55,56 @@ def generate_color_map(layout_strings):
         'D': 'Y'   # Door → Y
     }
 
-
-
     table = str.maketrans(object_to_color_map)
     return layout_strings.translate(table)
 
+def layout_to_string(layout):
+    """
+    Convert a 2D list of characters into a single string with newline separators.
+    
+    Example:
+    [['W', 'W', 'E'],
+    ['S', 'E', 'G']]
+    → 'WWE\nSEG'
+    """
+    return '\n'.join(''.join(row) for row in layout)
 
-    # color_strings = []
-    # for line in layout_strings:
-    #     color_line = ''
-    #     for char in line:
-    #         color_char = object_to_color_map.get(char.upper(), 'E')
-    #         color_line += color_char
-    #     color_strings.append(color_line)
 
-    # return color_strings
+def clean_and_place_goal(layout_string):
+    # Step 0: Replace 'K', 'D', 'S' with 'E'
+    layout_string = re.sub(r'[KDS]', 'E', layout_string)
 
+    # Step 1: Convert to list of rows
+    layout_rows = layout_string.strip().split('\n')
+
+    # Step 2: Check if G exists
+    if any('G' in row for row in layout_rows):
+        return '\n'.join(layout_rows)  # Already has a goal
+
+    # Step 3: Find all E positions
+    e_positions = []
+    for row_idx, row in enumerate(layout_rows):
+        for col_idx, char in enumerate(row):
+            if char == 'E':
+                e_positions.append((row_idx, col_idx))
+
+    if not e_positions:
+        raise ValueError("No empty spaces 'E' available to place a goal.")
+
+    # Step 4: Pick one 'E' and turn it into 'G'
+    y, x = random.choice(e_positions)
+    row_chars = list(layout_rows[y])
+    row_chars[x] = 'G'
+    layout_rows[y] = ''.join(row_chars)
+
+    # Step 5: Join back to string
+    return '\n'.join(layout_rows)
 
     
-    s
+def combine_maps(layout: str, color: str, file_path) -> str:
+    combine_maps = layout.strip() + "\n\n" + color.strip()
+    with open(file_path, 'w') as f:
+        f.write(combine_maps)
+    print(f"Layouts saved to {file_path}")
+
+

@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 import numpy as np
-from minigrid_custom_env import CustomEnvFromFile
+from minigrid_custom_env import CustomMiniGridEnv
 from minigrid.wrappers import FullyObsWrapper
 from path import Paths
 import random
@@ -433,7 +433,7 @@ if __name__ == "__main__":
         wandb.init(project='PPO_test', entity='svea41')
     path = Paths()
     env_0 = FullyObsWrapper(
-        CustomEnvFromFile(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
+        CustomMiniGridEnv(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
                           max_steps=1000,
                           render_mode="rgb"))
 

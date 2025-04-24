@@ -1,5 +1,6 @@
 import sys
-from .common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT
+sys.path.append('/home/siyao/project/rlPractice/MiniGrid/modelBased')
+from common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT
 from minigrid_custom_env import *
 from minigrid.wrappers import FullyObsWrapper, ImgObsWrapper
 from path import *
@@ -72,6 +73,61 @@ else:
 
 #     return obs_np, obs_next_np, act_np, rew_np, done_np
 
+
+def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N=10):
+    # 如果 N==0 或者关键样本太少，不做增强
+    if N <= 1:
+        return obs, obs_next, act, rew, done
+    """
+    对指定的关键动作做过采样 N 倍，其余样本保留一次。
+    actions_to_oversample: list of action indices, e.g. [pickup, toggle]
+    """
+    # Rest of augment_interactions ...(obs, obs_next, act, rew, done, actions_to_oversample, N=10):
+    """
+    对指定的关键动作做过采样 N 倍，其余样本保留一次。
+    actions_to_oversample: list of action indices, e.g. [pickup, toggle]
+    """
+    # obs shape e.g. (num_samples, 1, H, W, C)
+    # act shape e.g. (num_samples, 1)
+    num_samples = obs.shape[0]
+    flat_act = act.reshape(num_samples)  # (num_samples,)
+
+    # 检测哪些 transition 实际改变了环境
+    changed = np.any(obs != obs_next, axis=tuple(range(1, obs.ndim)))  # (num_samples,)
+
+    # 标记要过采样的关键动作
+    mask_key = np.zeros(num_samples, dtype=bool)
+    for a in actions_to_oversample:
+        mask_key |= (flat_act == a)
+
+    # 最终 mask：既是关键动作，又发生了环境变化
+    mask = mask_key & changed
+
+    # 分离关键交互与普通样本
+    obs_key    = obs[mask]
+    obsn_key   = obs_next[mask]
+    act_key    = act[mask]
+    rew_key    = rew[mask]
+    done_key   = done[mask]
+
+    obs_norm    = obs[~mask]
+    obsn_norm   = obs_next[~mask]
+    act_norm    = act[~mask]
+    rew_norm    = rew[~mask]
+    done_norm   = done[~mask]
+
+    # 过采样关键交互
+    obs_aug      = np.concatenate([obs_norm] + [obs_key] * N, axis=0)
+    obsn_aug     = np.concatenate([obsn_norm] + [obsn_key] * N, axis=0)
+    act_aug      = np.concatenate([act_norm] + [act_key] * N, axis=0)
+    rew_aug      = np.concatenate([rew_norm] + [rew_key] * N, axis=0)
+    done_aug     = np.concatenate([done_norm] + [done_key] * N, axis=0)
+
+    # 打乱数据
+    idx = np.random.permutation(len(obs_aug))
+    return obs_aug[idx], obsn_aug[idx], act_aug[idx], rew_aug[idx], done_aug[idx]
+
+
 def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
     obs_list, obs_next_list, act_list, rew_list, done_list = [], [], [], [], []
     episodes = 0
@@ -90,7 +146,7 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
 
             # Select an action
             if policy is None:
-                act = np.random.choice(meaningful_actions, p=[0.8, 0.1, 0.1])  # Weighted random sampling
+                act = np.random.choice(meaningful_actions, p=[0.6, 0.2, 0.2])  # Weighted random sampling
             else:
                 state_norm = normalize_obs(obs['image']).to(device)
                 act = policy.select_action(state_norm)
@@ -183,9 +239,23 @@ def data_collect(cfg: DictConfig):
         mode = 'human'
     env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path=hparam.env_path, 
                                         custom_mission="Find the key and open the door.",
-                                        max_steps=4000, render_mode=mode))
+                                        max_steps=5000, render_mode=mode))
     obs, obs_next, act,rew, done = run_env(env, hparam)
     save_experiments(cfg.env,obs,obs_next, act, rew, done)
 
+
+
+def data_collect_api(cfg: DictConfig, env):
+    hparam = cfg.env
+    obs, obs_next, act,rew, done = run_env(env, hparam)
+        # 指定要过采样的动作：pickup 和 toggle
+    # actions_to_oversample = [env.unwrapped.actions.toggle]
+    # obs, obs_next, act, rew, done = augment_interactions(
+    #     obs, obs_next, act, rew, done,
+    #     actions_to_oversample,
+    #     N=10  # 过采样倍数
+    # )
+    save_experiments(cfg.env,obs,obs_next, act, rew, done)
+
 if __name__ == "__main__": 
-    data_collect()
+    data_collect() 

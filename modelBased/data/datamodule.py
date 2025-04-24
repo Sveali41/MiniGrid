@@ -142,6 +142,8 @@ class WMRLDataModule(pl.LightningDataModule):
         self.data_train, self.data_test = torch.utils.data.random_split(
             data, [split_size, len(data) - split_size]
         )
+        if len(self.data_test) < 256:
+            raise ValueError("The test set is too small. Please ensure the dataset is large enough for splitting.")
 
     def train_dataloader(self):
         return DataLoader(

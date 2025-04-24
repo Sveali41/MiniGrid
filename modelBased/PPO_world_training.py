@@ -1,18 +1,20 @@
 import sys
-from common.utils import PROJECT_ROOT
-from minigrid_custom_env import CustomEnvFromFile
+from .common.utils import PROJECT_ROOT
+from minigrid_custom_env import CustomMiniGridEnv
 from minigrid.wrappers import FullyObsWrapper
 import torch
 import numpy as np
-from PPO import PPO
+from .PPO import PPO
 import hydra
 from datetime import datetime
-from common import utils
+from .common import utils
 
 from omegaconf import DictConfig, OmegaConf 
-import AttentionWM_support
-import Embedding_support
-import MLP_support
+from . import AttentionWM_support
+from . import Embedding_support
+from . import MLP_support#
+import wandb
+
 
 # set device to cpu or cuda
 device = torch.device('cpu')
@@ -93,6 +95,9 @@ def process_data(state, action, maks_size):
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def training_agent(cfg: DictConfig):
+    run_training(cfg)
+
+def run_training(cfg):
     hparams = cfg
     
     # 1. World Model
@@ -141,18 +146,25 @@ def training_agent(cfg: DictConfig):
     env_path = hparams_PPO.env_path
     visualize_flag = hparams_PPO.visualize
     env_type =  hparams_PPO.env_type
+    use_wandb = hparams_PPO.use_wandb
+
+    if use_wandb:
+        wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
+        wandb.init(project='Trainer_policy', entity='18920011663-king-s-college-london', group="experiment-EWC", reinit=True)
+
+    # training_agent()
 
     if visualize_flag:
         visualize = utils.Visualization(hparams_world_model)
     # 3. Real environment
     env = FullyObsWrapper(
-        CustomEnvFromFile(txt_file_path=env_path, custom_mission="Find the key and open the door.",
-                          max_steps=4000,render_mode=None))
+        CustomMiniGridEnv(txt_file_path=env_path, custom_mission="Find the key and open the door.",
+                        max_steps=4000, render_mode=None))
     
     # 4. Initialize training
     i_episode = 0
     update_timestep = max_ep_len * 4  # update policy every n timesteps
-    print_freq = max_ep_len * 4
+    print_freq = max_ep_len * 2
     print_running_reward = 0
     print_running_episodes = 0
     time_step = 0
@@ -162,12 +174,12 @@ def training_agent(cfg: DictConfig):
         if env_type == 'empty':
             action_dim = 3
         else:
-            action_dim = env.action_space
+            action_dim = 6
     else:
         if env_type == 'empty':
             action_dim = 3
         else:
-            action_dim = env.action_space.n
+            action_dim = 6
     state_dim = np.prod(env.observation_space['image'].shape)
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
@@ -175,6 +187,7 @@ def training_agent(cfg: DictConfig):
 
     # training loop
     while time_step <= max_training_timesteps:
+        print(f'time step: {time_step}')
         state_init = env.reset()[0]['image']
         state_0 = utils.ColRowCanl_to_CanlRowCol(state_init)
         goal_position_yx = find_position(state_0, (8, 1, 0)) # find the goal position
@@ -219,7 +232,8 @@ def training_agent(cfg: DictConfig):
 
             time_step += 1
             current_ep_reward += reward
-
+            if use_wandb:
+                wandb.log({"episode_reward": current_ep_reward})
             # update PPO agent
             if time_step % update_timestep == 0:
                 ppo_agent.update()
@@ -228,7 +242,7 @@ def training_agent(cfg: DictConfig):
             if has_continuous_action_space and time_step % action_std_decay_freq == 0:
                 ppo_agent.decay_action_std(action_std_decay_rate, min_action_std)
 
-            if time_step % print_freq == 0:
+            if time_step % print_freq == 0 and print_running_episodes > 0:
                 # print average reward till last episode
                 print_avg_reward = print_running_reward / print_running_episodes
                 if use_wandb:
@@ -258,6 +272,8 @@ def training_agent(cfg: DictConfig):
 
         i_episode += 1
     env.close()
+    if use_wandb:
+        wandb.finish() 
 
 
 if __name__ == "__main__":
@@ -265,7 +281,7 @@ if __name__ == "__main__":
     if use_wandb:
         import wandb
 
-        wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
+        wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
         wandb.init(project='WM Attention PPO', entity='svea41')
 
     training_agent()
