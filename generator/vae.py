@@ -58,13 +58,17 @@ class VAE(pl.LightningModule):
         x_recon = self.decoder(z)
         return x_recon, mu, logvar
     
+    
+    def kl_weight(self):
+        return min(1.0, self.current_epoch / 50) * 0.1   # 第50轮以后到0.1
+
     def loss_function_classification(self, recon_x, target_x, mu, logvar):
         # recon_x shape: [batch_size, 3, H, W]
         # target_x shape: [batch_size, H, W]
         weights = torch.tensor([1.0, 1.0, 5.0], device=recon_x.device)  # 让类别2（Goal）更重要！
         kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / target_x.size(0)
         recon_loss = nn.functional.cross_entropy(recon_x, target_x, weight=weights, reduction='mean')
-        beta = 0.1  # 重要！调整KL Loss力度
+        beta = self.kl_weight()
         return recon_loss + beta * kl_loss, recon_loss, kl_loss
 
 
