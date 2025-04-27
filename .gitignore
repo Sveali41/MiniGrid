@@ -12,6 +12,7 @@ __pycache__/
 
 # ignore visualisation files
 modelBased/visulization
+generator/visualize
 
 # ignore model files
 modelBased/models/Rmax
