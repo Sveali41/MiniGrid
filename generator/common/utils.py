@@ -107,4 +107,30 @@ def combine_maps(layout: str, color: str, file_path) -> str:
         f.write(combine_maps)
     print(f"Layouts saved to {file_path}")
 
+# for VAE generator based on classification
+def map_value_to_index(batch, class_values):
+    """
+    Map values in the batch to the class of the model.
+    Args:
+        batch (torch.Tensor): The input tensor.
+        value_to_idx (dict): A dictionary mapping values to indices."""
+    value_to_idx = {v: i for i, v in enumerate(class_values)}
+    batch_mapped = batch.clone()
+    for val, idx in value_to_idx.items():
+        batch_mapped[batch == val] = idx
+    return batch_mapped.float()
+
+def map_index_to_value(pred_classes, class_values):
+    """
+    Map indices in the predicted classes to their corresponding values.
+    Args:
+        pred_classes (torch.Tensor): The predicted classes.
+        idx_to_value (dict): A dictionary mapping indices to values.
+    """
+    idx_to_value = {i: v for i, v in enumerate(class_values)}  # 类别索引到数值的反向映射
+    pred_map = pred_classes.clone()
+    for idx, val in idx_to_value.items():
+        pred_map[pred_classes == idx] = val
+    return pred_map
+
 
