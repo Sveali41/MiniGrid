@@ -17,6 +17,7 @@ from gen import GAN
 from modelBased.common.utils import GENERATOR_PATH
 import wandb
 from generator.common.utils import map_index_to_value
+from data.env_dataset_support import *
 
 @hydra.main(version_base=None, config_path=str(GENERATOR_PATH / "conf"), config_name="config")
 def train(cfg: DictConfig):
@@ -50,7 +51,7 @@ def train(cfg: DictConfig):
         metric_to_monitor = 'd_loss' #"loss"
     elif hparams.training_generator.generator == "vae":
         metric_to_monitor = 'train_loss'
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.01, patience=50, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.001, patience=20, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
                             monitor = metric_to_monitor,
@@ -109,7 +110,7 @@ def validate(cfg: DictConfig):
     model.eval()
 
     batch_size = hparams.training_generator.batch_size
-    num_tests = 20
+    num_tests = 1
 
     for i in range(num_tests):
         # for GANs you sample z and do model(z)
@@ -126,14 +127,13 @@ def validate(cfg: DictConfig):
             z = torch.randn(batch_size, hparams.vae.latent_dim)
             with torch.no_grad():
                 # your VAE should have a decode method
-                generated = model.decoder(z)  
+                generated = model.decode(z)  
                 # if decode returns continuous, maybe threshold or argmax
                 generated_maps = torch.argmax(generated, dim=1)
                 generated_maps = map_index_to_value(generated_maps, class_values)
-
-        print(generated_maps)
+                visulize_grid(generated_maps,count=32, save_flag=True, save_path='/home/siyao/project/rlPractice/MiniGrid/generator/result')
 
 if __name__ == "__main__":
-    # train()
+    train()
     validate()
     pass

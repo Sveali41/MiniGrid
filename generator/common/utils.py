@@ -33,6 +33,17 @@ def load_gen(cfg):
     return model
 
 def generate_obj_map(layout, map_dict):
+    """
+    Convert a 2D tensor layout into a string representation using a mapping dictionary.
+    
+    Args:
+        layout (torch.Tensor): A 2D tensor representing the layout.
+        map_dict (dict): A dictionary mapping numbers to characters.
+            
+    Returns:
+        str: A string representation of the layout.
+    """
+    # Convert the layout tensor to a numpy array
     reverse_map_dict = {v: k for k, v in map_dict.items()}
     layout_strings = []
     for i in range(layout.shape[1]): 

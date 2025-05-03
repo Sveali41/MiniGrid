@@ -26,8 +26,8 @@ basic:
 
 vae:
     img_size: [12,12]
-    latent_dim: 128
-    lr: 1e-3 
+    latent_dim: 32
+    lr: 1e-4 
     vae_task: classification
     class_value_list: [1,2,8] 
 
@@ -49,7 +49,7 @@ dataloader_gan:
   #
 dataloader_vae:
   # data 
-  data_dir: ${oc.env:GENERATOR_PATH}/data/grid10000.pkl
+  data_dir: ${oc.env:GENERATOR_PATH}/data/grid500.pkl
   batch_size: 32
   n_cpu: 4
   # model

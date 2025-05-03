@@ -6,6 +6,7 @@ import os
 import numpy as np
 from typing import List
 import pickle
+import torch
 def save_dic(dict, save_path='dict.pkl'):
     with open(save_path, 'wb') as f:
         pickle.dump(dict, f)
@@ -82,6 +83,10 @@ def is_reachable(grid: List[List[str]]) -> bool:
         return False  # 存在封闭区域
 
 def visulize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
+
+    if isinstance(grid, torch.Tensor):
+        grid = grid.detach().cpu().numpy()
+
     singlet = True
     if save_flag:
         plt.ioff()
@@ -89,6 +94,8 @@ def visulize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
         if isinstance(grid[0], list) or isinstance(grid[0], np.ndarray):
             if isinstance(grid[0][0], list) or isinstance(grid[0][0], np.ndarray):
                 singlet = False
+                if count > len(grid):
+                    count = len(grid)
     if not np.issubdtype(grid.dtype, np.integer):
         grid = replace_vector_value(grid, 'chart')
 
@@ -210,8 +217,8 @@ def generate_single_env(height, width, mode, wall_prob=0.3, key_prob=0.05, door_
         grid = random_generate(height, width, wall_prob, key_prob, door_prob)
     else:
         path_len = int((height-2) * (width-2) * (1-wall_prob))
-        branch_num = random.randint(4,width)
-        branch_length = random.randint(2,height-2)
+        branch_num = random.randint(height//2,width)
+        branch_length = random.randint(height//3,height-2)
         grid = generate_path_branch(height, width, path_len,branch_num=branch_num, branch_length=branch_length) 
     return grid
 

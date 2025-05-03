@@ -6,7 +6,7 @@ from modelBased import AttentionWM_training, PPO_world_training
 
 import hydra
 import os
-import wandb
+import torch
 
 '''
 Process
@@ -16,8 +16,7 @@ Process
 3. collect data from the env
 4. train(finetuning) the attention & WM
 5. using the trained attention & WM to play in the final task sets
-6. return score in the final task as the loss2
-7. using loss1+loss2 update the generator
+6. return score in the final task as the feedback
 
 '''
 
@@ -29,6 +28,9 @@ def run(cfg: DictConfig):
     support = Support.Support(cfg)
     # support.generate_final_task()
 
+    # load the map from MAP sample
+    env_database = support.load_sample_MAP(cfg.training_generator.elites_path)
+
     env_text_file_name = ['env1_move.txt','env2_move.txt','env3_move.txt', 'env3_move.txt']
     file_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'level'))
     for step in range(len(env_text_file_name)):
@@ -39,31 +41,45 @@ def run(cfg: DictConfig):
         # model = support.load_gen_func()
 
         # 2. use the generator to generator env (comparision among the different env as loss1)
-        # env = support.wrap_env(support.generate_env(model))
-        file_path = os.path.join(file_dir, env_text_file_name[step])
-        env = support.wrap_env_from_text(file_path)
+        # 1) by the generator
+        # 2) by the env_database from MAP elites
+        if cfg.training_generator.elites_path is not None:
+            env = env_database[step]
+            env = torch.tensor(env).unsqueeze(0)  # shape: (1, H, W)
+            env = support.wrap_env(env)
+            
 
-        # 3. collect data from the env and save it to npz
-        support.del_env_data_file()  # clear the data_save_path
+        else:
+            # env = support.wrap_env(support.generate_env(model))
+            file_path = os.path.join(file_dir, env_text_file_name[step])
+            env = support.wrap_env_from_text(file_path)
+
+        # # 3. collect data from the env and save it to npz
+        # support.del_env_data_file()  # clear the data_save_path
         
-        support.collect_data_trainer(env)
-        support.visualize_dataset(cfg.attention_model.data_dir,'empty',200,True)
-        # 4. train(finetuning) the attention & WM (according to the size of final task to padding the data)
+        # support.collect_data_trainer(env)
+        # support.visualize_dataset(cfg.attention_model.data_dir,'empty',200,True)
+        # # 4. train(finetuning) the attention & WM (according to the size of final task to padding the data)
         
-        cur_old_params, cur_fisher = AttentionWM_training.train_api(cfg, old_params, fisher)
-        old_params, fisher = cur_old_params, cur_fisher
+        # cur_old_params, cur_fisher = AttentionWM_training.train_api(cfg, old_params, fisher)
+        # old_params, fisher = cur_old_params, cur_fisher
         # for the second time, we do the finetuning based on the pre-trained model + the data collected from the env (EWC or LWF)
 
         # 5. using the trained attention & WM to play in the final task sets
         # load the final task env and train the PPO agent inside the learned world model
-        
-        PPO_world_training.run_training(cfg)
+        # load all the finals in the task folder
+        final_task_set = [os.path.join(cfg.PPO.final_task, f) for f in os.listdir(cfg.PPO.final_task) 
+             if os.path.isfile(os.path.join(cfg.PPO.final_task, f))]
+        # the policy is training based on the env_path in PPO
+        for i in range(len(final_task_set)):
+            cfg.PPO.env_path = final_task_set[i]
+            PPO_world_training.run_training(cfg)
         # clear the data_save_path
         support.del_env_data_file()
-        # 6. return score in the final task as the loss2
+        # 6. return score in the final task 
+        # evaluate the WM perfromance in final task
 
 
-        # 7. using loss1+loss2 update the generator
     
     
 

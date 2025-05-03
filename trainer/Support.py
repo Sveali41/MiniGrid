@@ -14,6 +14,9 @@ from modelBased.data_collect import *
 from modelBased.data.datamodule import *
 # from generator.data.env_dataset_support import generate_valid_minigrid_with_key_door
 from matplotlib import pyplot as plt
+import pickle
+import random
+
 class Support:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -58,6 +61,16 @@ class Support:
                 plt.close()
             else:
                 plt.show()
+
+    def load_sample_MAP(self, pkl_path):
+        with open(pkl_path, 'rb') as f:
+            data_dict = pickle.load(f)
+            all_maps = list(data_dict.values())
+            random.shuffle(all_maps)
+            return all_maps
+        
+    # def complete_map_from_MAP_sample(self, env):
+
 
 
 
@@ -121,6 +134,7 @@ class Support:
         # delete the env data file
         if os.path.exists(self.cfg.env.collect.data_save_path):
             os.remove(self.cfg.env.collect.data_save_path)
+
 
 
 
