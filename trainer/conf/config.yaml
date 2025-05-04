@@ -68,7 +68,7 @@ PPO:
   compute_regret: True
   regret_eval_freq: 5000  # how often to compute regret (in timesteps)
   regret_eval_episodes: 5  # how many episodes to average for evaluation
-  real_policy_path: ${oc.env:MODEL_FPATH}/policy_final_task_real.ckpt
+  real_policy_path: ${oc.env:MODEL_FPATH}
   # the params for final task path
   final_task: ${oc.env:TRAINER_PATH}/level/final_task
   env_path: ${oc.env:TRAINER_PATH}/level/final_task.txt

@@ -181,7 +181,7 @@ def run_training_wm(cfg):
 
     if use_wandb:
         wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
-        wandb.init(project='Trainer_policy', entity='18920011663-king-s-college-london', group="experiment-EWC", reinit=True)
+        wandb.init(project='Trainer_policy', entity='18920011663-king-s-college-london',reinit=True)
 
     # training_agent()
 
@@ -199,6 +199,7 @@ def run_training_wm(cfg):
     print_running_reward = 0
     print_running_episodes = 0
     time_step = 0
+    step_penalty = -0.9 / max_ep_len
     
     # action space dimension
     if has_continuous_action_space:
@@ -262,6 +263,7 @@ def run_training_wm(cfg):
             state_0 = state_pre
             # obtain reward from the state representation & done
             done, reward = get_destination(state_0, t, max_ep_len, goal_position_yx)
+            reward += step_penalty
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)
@@ -314,11 +316,11 @@ def run_training_wm(cfg):
                         wandb.log({
                             "regret": regret,
                             "normalized_regret": norm_regret,
-                            "real_policy_reward": R_real,
-                            "wm_policy_reward": R_wm,
+                            "real_policy_reward_in_eva": R_real,
+                            "wm_policy_reward_in_eva": R_wm,
                             "timestep": time_step
                         })
-                        
+
             # break; if the episode is over
             if done:
                 break
@@ -333,17 +335,21 @@ def run_training_wm(cfg):
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def training_agent_real_env(cfg: DictConfig):
+    run_training_real_env(cfg)
+
+def run_training_real_env(cfg):
     # parameters
     hparams = cfg
     hparams_PPO = hparams.PPO
     has_continuous_action_space = hparams_PPO.has_continuous_action_space
     max_ep_len =  hparams_PPO.max_ep_len
     max_training_timesteps = hparams_PPO.max_training_timesteps
-    print_freq = hparams_PPO.print_freq
+    print_freq = max_ep_len * 2
     save_model_freq = hparams_PPO.save_model_freq
     update_timestep = max_ep_len * 4  # update policy every n timesteps
     print_running_reward = 0
     print_running_episodes = 0
+    start_time = datetime.now().replace(microsecond=0)
 
     time_step = 0
     i_episode = 0
@@ -361,6 +367,13 @@ def training_agent_real_env(cfg: DictConfig):
     action_std = hparams_PPO.action_std  # default std for action distribution (can be overwritten by action_std_decay_rate)
     has_continuous_action_space = hparams_PPO.has_continuous_action_space
     env_path = hparams_PPO.env_path
+    use_wandb = hparams_PPO.use_wandb
+    step_penalty = -0.9 / max_ep_len
+
+    if use_wandb:
+        wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
+        wandb.init(project='final_task_policy', entity='18920011663-king-s-college-london', reinit=True)
+
 
     # state space dimension
     env = FullyObsWrapper(
@@ -389,7 +402,9 @@ def training_agent_real_env(cfg: DictConfig):
 
             # select action with policy
             action = ppo_agent.select_action(state)
-            state, reward, done, _, _ = env.step(action)
+            state, reward, terminated, truncated, _ = env.step(action)
+            reward += step_penalty
+            done = terminated or truncated
             state = preprocess_observation(state['image']).to(device)
             # saving reward and is_terminals
             ppo_agent.buffer.rewards.append(reward)
@@ -438,6 +453,8 @@ def training_agent_real_env(cfg: DictConfig):
         i_episode += 1
 
     env.close()
+    if use_wandb:
+        wandb.finish()
 
 
 if __name__ == "__main__":
