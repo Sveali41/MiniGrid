@@ -1,15 +1,19 @@
 from typing import List
 import numpy as np
+import os 
+import sys
+ROOTPATH = os.path.abspath(os.path.join(__file__, '..'))
+sys.path.append(ROOTPATH)
 from data.env_dataset_support import *
 import random
 
 # 生成可达的地图，保证每个生成的地图都可到达终点
 def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_range=(0, 0), key_p_range=(0,0), max_len = 1e7,random_gen_max=2e4):
-    all_map = True
+    all_map = True  #  True: Feature can be repearted, False: no repeat
     index = 0
     archive = {}
     while max_len > 0:  # 如果最大尝试次数超过1500000还没有积累够num_maps 就停止
-        print(f'remain attempt: {max_len}')
+        print(f'gen minigrid remain attempt: {max_len}')
         wall_p = random.uniform(wall_p_range[0], wall_p_range[1])
         door_p = random.uniform(door_p_range[0], door_p_range[1])
         key_p = random.uniform(door_p, key_p_range[1])

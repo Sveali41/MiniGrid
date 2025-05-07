@@ -2,6 +2,8 @@ import random
 from collections import deque
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 import os
 import numpy as np
 from typing import List

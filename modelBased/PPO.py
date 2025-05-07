@@ -233,31 +233,27 @@ class PPO:
             print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
 
     def select_action(self, state):
-
         if self.has_continuous_action_space:
             with torch.no_grad():
                 action, action_logprob, state_val = self.policy_old.act(state)
 
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.detach().cpu().numpy().flatten()
+            return action.detach().cpu().numpy().flatten(), state, action, action_logprob, state_val
 
         else:
             with torch.no_grad():
                 action, action_logprob, state_val = self.policy_old.act(state)
+            return action.item(), state, action, action_logprob, state_val
 
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.item()
+    def save_buffer(self, state=None, action=None, logprob=None, state_value=None, reward=None, is_terminal=None):
+        self.buffer.states.append(state)
+        self.buffer.actions.append(action)
+        self.buffer.logprobs.append(logprob)
+        self.buffer.state_values.append(state_value)
+        self.buffer.rewards.append(reward)
+        self.buffer.is_terminals.append(is_terminal)
+        
 
     def update(self):
-
         # Monte Carlo estimate of returns
         rewards = []
         discounted_reward = 0
@@ -322,23 +318,3 @@ def preprocess_observation(obs):
     return torch.from_numpy(obs.flatten()).float().to(device)
 
 
-
-if __name__ == "__main__":
-    use_wandb = True
-    if use_wandb:
-        import wandb
-
-        wandb.login(key="ae0b0db53ae05bebce869b5ccc77b9efd0d62c73")
-        wandb.init(project='PPO_test', entity='svea41')
-    path = Paths()
-    env_0 = FullyObsWrapper(
-        CustomMiniGridEnv(txt_file_path=path.LEVEL_FILE, custom_mission="Find the key and open the door.",
-                          max_steps=1000,
-                          render_mode="rgb"))
-
-    # track total training time
-    start_time = datetime.now().replace(microsecond=0)
-    training_agent(env_0, path.TRAINED_MODEL)
-
-    if use_wandb:
-        wandb.finish()

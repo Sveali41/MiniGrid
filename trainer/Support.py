@@ -1,7 +1,9 @@
 import hydra
 import sys
-sys.path.append('/home/siyao/project/rlPractice/MiniGrid')
-from modelBased.common.utils import GENERATOR_PATH
+import os
+ROOTPATH = os.path.abspath(os.path.join(__file__, '..', '..'))
+sys.path.append(ROOTPATH)
+from modelBased.common.utils import GENERATOR_PATH, TRAINER_PATH
 from omegaconf import DictConfig
 from generator.common.utils import load_gen, generate_color_map, generate_obj_map, layout_to_string, combine_maps, clean_and_place_goal
 from generator.gen import GAN
@@ -9,14 +11,14 @@ from minigrid_custom_env import *
 import textwrap
 from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper
 import torch
-import os
 from modelBased.data_collect import *
 from modelBased.data.datamodule import *
 # from generator.data.env_dataset_support import generate_valid_minigrid_with_key_door
 from matplotlib import pyplot as plt
 import pickle
 import random
-
+from generator.select_valid_data import generate_envs_dataset
+from generator.data.env_dataset_support import replace_vector_value
 class Support:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -71,8 +73,18 @@ class Support:
         
     # def complete_map_from_MAP_sample(self, env):
 
-
-
+    def generate_final_task(self, rows, cols, num_maps):
+        dict = generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_range=(0, 0), key_p_range=(0,0), max_len = 1e7,random_gen_max=3e4)
+        file_names = []
+        for idx, key in enumerate(dict):
+            map = dict[key]
+            map = torch.tensor(map).unsqueeze(0)
+            layout_string = generate_obj_map(map, self.cfg.training_generator.map_element)
+            color_string = generate_color_map(layout_string)
+            save_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{idx}.txt')
+            map = combine_maps(layout_string, color_string, save_path)
+            file_names.append(save_path)
+        return file_names
 
     def load_gen_func(self):
         model = load_gen(self.cfg)
@@ -89,7 +101,7 @@ class Support:
         else:
             render_mode = None
         layout_string = generate_obj_map(env, self.cfg.training_generator.map_element)
-        layout_string = clean_and_place_goal(layout_string)
+        # layout_string = clean_and_place_goal(layout_string)
         color_string = generate_color_map(layout_string)
         print("layout_string: ", layout_string)
         env = FullyObsWrapper(CustomMiniGridEnv(

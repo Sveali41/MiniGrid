@@ -26,7 +26,7 @@ env:
   # env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
   visualize: False # to choose whether your want to see the env during interaction or not
   collect:
-    episodes: 400  # 500 number of episodes to start 
+    episodes: 500  # 500 number of episodes to start 
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
 
 # 3. attension model
@@ -40,8 +40,8 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 15   # 20
-  lr: 1e-4
+  n_epochs: 20   # 20
+  lr: 1e-4 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
   action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
@@ -66,9 +66,11 @@ attention_model:
 PPO:
   # add the params for regret computation
   compute_regret: True
-  regret_eval_freq: 5000  # how often to compute regret (in timesteps)
+  regret_eval_freq: 10000  # how often to compute regret (in timesteps) 5000
   regret_eval_episodes: 5  # how many episodes to average for evaluation
-  real_policy_path: ${oc.env:MODEL_FPATH}
+  regret_threshold: 0.1  # threshold for regret
+  real_policy_folder: ${oc.env:MODEL_FPATH}
+  real_policy_path: None
   # the params for final task path
   final_task: ${oc.env:TRAINER_PATH}/level/final_task
   env_path: ${oc.env:TRAINER_PATH}/level/final_task.txt
@@ -79,19 +81,19 @@ PPO:
   max_ep_len: 14000  # max timesteps in one episode 8000
   action_std: 0.1  # set same std for action distribution which was used while saving
   i_episode: 0
-  K_epochs: 80  # update policy for K epochs
+  K_epochs: 20  # update policy for K epochs
   eps_clip: 0.2  # clip parameter for PPO
   gamma: 0.99  # discount factor
   lr_actor: 0.0003  # learning rate for actor
   lr_critic: 0.001  # learning rate for critic
-  checkpoint_path: ${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt
+  checkpoint_path_wm: ${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt
   time_step: 0
-  max_training_timesteps: 1e6 #1.5e5
+  max_training_timesteps: 1.5e6 #1e6
   # max_training_timesteps: 3e5
-  action_std_decay_freq: 2.5e5
-  action_std_decay_rate: 0.05
+  action_std_decay_freq: 1e4
+  action_std_decay_rate: 0.95
   min_action_std: 0.1
-  save_model_freq: 2e4
+  save_model_freq: 4e4 #2e4
   ########################################
   # test
   total_test_episodes: 1000
@@ -102,6 +104,8 @@ PPO:
   save_csv: True
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
   use_wandb: True
+  wandb_run_name: None
+  
 
 
 test_env:
