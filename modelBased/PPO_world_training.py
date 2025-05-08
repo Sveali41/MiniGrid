@@ -146,6 +146,7 @@ def run_training_wm(cfg):
         print(f"Model type: {hparams_world_model.model_type} not supported")
         exit()
     utils.load_model_weight(model, hparams_world_model.model_save_path)
+    model.eval() 
     
 
 
@@ -244,7 +245,8 @@ def run_training_wm(cfg):
             action, state_buffer, action_buffer, action_logprob, state_val = ppo_agent.select_action(state_norm.flatten()) # state is the dimension of flatten
  
             state_masked = process_data(state_0.clone(), hparams_world_model.attention_mask_size)
-            delta_masked, _ = model(state_masked, action)
+            with torch.no_grad():
+                delta_masked, _ = model(state_masked, action)
             
             state_pre_masked = state_masked + delta_masked
             if visualize_flag:
@@ -425,6 +427,7 @@ def run_training_real_env(cfg):
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
 
+
     # training loop
     while time_step <= max_training_timesteps:
 
@@ -491,6 +494,51 @@ def run_training_real_env(cfg):
     if use_wandb:
         wandb.finish()
 
+
+def run_policy_evaluation(cfg: DictConfig):
+    hparams = cfg
+    # 1. World Model
+    hparams_world_model = hparams.attention_model
+    # 2. PPO
+    # hyperparameters
+    # compute regret
+    hparams_PPO = hparams.PPO
+
+    lr_actor = hparams_PPO.lr_actor
+    lr_critic = hparams_PPO.lr_critic
+    gamma = hparams_PPO.gamma
+    K_epochs = hparams_PPO.K_epochs
+    eps_clip = hparams_PPO.eps_clip
+    action_std = hparams_PPO.action_std
+    has_continuous_action_space = hparams_PPO.has_continuous_action_space
+    checkpoint_path = hparams_PPO.checkpoint_path_wm
+    env_path = hparams_PPO.env_path
+    env_type =  hparams_PPO.env_type
+    episodes = hparams_PPO.get("episodes_eval")
+
+    # 3. Real environment
+    env = FullyObsWrapper(
+        CustomMiniGridEnv(txt_file_path=env_path, custom_mission="Find the key and open the door.",
+                        max_steps=4000, render_mode=None))
+ 
+    # action space dimension
+    if has_continuous_action_space:
+        if env_type == 'empty':
+            action_dim = 3
+        else:
+            action_dim = 6
+    else:
+        if env_type == 'empty':
+            action_dim = 3
+        else:
+            action_dim = 6
+    state_dim = np.prod(env.observation_space['image'].shape)
+
+    policy_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip,
+                    has_continuous_action_space, action_std)
+    policy_agent.load(checkpoint_path)
+    Reward = evaluate_policy(policy_agent, env, episodes, hparams_world_model.obs_norm_values)
+    return Reward
 
 if __name__ == "__main__":
     use_wandb = True

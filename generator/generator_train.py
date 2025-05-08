@@ -131,7 +131,7 @@ def validate(cfg: DictConfig):
                 # if decode returns continuous, maybe threshold or argmax
                 generated_maps = torch.argmax(generated, dim=1)
                 generated_maps = map_index_to_value(generated_maps, class_values)
-                visulize_grid(generated_maps,count=32, save_flag=True, save_path='/home/siyao/project/rlPractice/MiniGrid/generator/result')
+                visualize_grid(generated_maps,count=32, save_flag=True, save_path='/home/siyao/project/rlPractice/MiniGrid/generator/result')
 
 if __name__ == "__main__":
     train()

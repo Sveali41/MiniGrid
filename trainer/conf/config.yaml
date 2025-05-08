@@ -48,7 +48,8 @@ attention_model:
   valid_values_obj: [1, 2, 4, 5, 8, 10]                                                             
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
-  use_wandb: False
+  use_wandb: True
+  lambda_ewc: 10
 
   # freeze weights
   freeze_weight: False  # 置true 会加载权重，不会训练模型，用于验证
@@ -65,7 +66,8 @@ attention_model:
   # 4. PPO model for final task
 PPO:
   # add the params for regret computation
-  compute_regret: True
+  performance_eval_method: "average_reward"  # regret/accuracy of the model
+  compute_regret: False
   regret_eval_freq: 10000  # how often to compute regret (in timesteps) 5000
   regret_eval_episodes: 5  # how many episodes to average for evaluation
   regret_threshold: 0.1  # threshold for regret
@@ -105,6 +107,10 @@ PPO:
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
   use_wandb: True
   wandb_run_name: None
+
+  # evaluation
+  episodes_eval: 500
+  reward_threshold: 0.9
   
 
 

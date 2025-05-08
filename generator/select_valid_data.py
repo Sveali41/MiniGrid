@@ -8,7 +8,7 @@ from data.env_dataset_support import *
 import random
 
 # 生成可达的地图，保证每个生成的地图都可到达终点
-def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_range=(0, 0), key_p_range=(0,0), max_len = 1e7,random_gen_max=2e4):
+def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_range=(0, 0), key_p_range=(0,0), max_len = 1e7,random_gen_max=2e4, save_flag=False, save_path=None):
     all_map = True  #  True: Feature can be repearted, False: no repeat
     index = 0
     archive = {}
@@ -31,7 +31,8 @@ def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_
                     try_again = False
         if all_map:  
             archive[index] = grid
-            visulize_grid(grid, save_flag=True,save_path='/home/siyao/project/rlPractice/MiniGrid/generator/visualize', idx=f'map_{index}')  # 这里的路径要主动修改
+            if save_flag:
+                visualize_grid(grid, save_flag=True,save_path=save_path, idx=f'map_{index}')  # 这里的路径要主动修改
             index += 1
         else:
             # 特征描述
@@ -41,7 +42,8 @@ def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_
             key = (bd1, bd2)
             if key not in archive:
                 archive[key] = grid
-                visulize_grid(grid, save_flag=True,save_path='/home/siyao/project/rlPractice/MiniGrid/generator/visualize', idx=f'{bd1}_{bd2}')  # 这里的路径要主动修改
+                if save_flag:
+                    visualize_grid(grid, save_flag=True,save_path=save_path, idx=f'{bd1}_{bd2}')  # 这里的路径要主动修改
         if len(archive) >= num_maps:  # 如果积累够， 提前跳出
             break
 

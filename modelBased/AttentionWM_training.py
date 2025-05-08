@@ -12,15 +12,15 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping    
 from pytorch_lightning.callbacks import ModelCheckpoint
 import wandb
-
+import numpy as np
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def train(cfg: DictConfig):
     run(cfg)
 
-def run(cfg: DictConfig, old_params=None, fisher=None):
+def run(cfg: DictConfig, old_params=None, fisher=None, layout=None):
     use_wandb = cfg.attention_model.use_wandb
-    lambda_ewc = 10.0
+    lambda_ewc = cfg.attention_model.lambda_ewc
     ewc_decay = 0.1
 
     # data
@@ -33,8 +33,12 @@ def run(cfg: DictConfig, old_params=None, fisher=None):
     # Set up logger
     wandb_logger = None
     if use_wandb:
-        wandb_logger = WandbLogger(project="Local_Attention_Training", log_model=True)
+        wandb_logger = WandbLogger(project="Local_Attention_Training", log_model=True, reinit=True)
         wandb_logger.experiment.watch(net, log='all', log_freq=1000)
+        wandb.log({"env_heatmap": wandb.Image((255*(layout/8)).astype(np.uint8))})
+
+        
+        
     # else:
     #     print("Debug mode enabled. WandB logging is disabled.")
 
@@ -92,8 +96,8 @@ def run(cfg: DictConfig, old_params=None, fisher=None):
         wandb.save(model_pth)
     return old_params, fisher
         
-def train_api(cfg: DictConfig, old_params, fisher):
-    old_params, fisher = run(cfg, old_params, fisher)
+def train_api(cfg: DictConfig, old_params, fisher, env_layout):
+    old_params, fisher = run(cfg, old_params, fisher, env_layout)
     return old_params, fisher
 
 if __name__ == "__main__":

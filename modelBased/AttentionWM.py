@@ -23,6 +23,10 @@ class AttentionWorldModel(pl.LightningModule):
         self.visualize_every = hparams.visualize_every
         self.step_counter = 0  
         self.data_type = hparams.data_type
+        self.lambda_ewc = getattr(hparams, "lambda_ewc", 10.0)
+        self.lambda_ewc_min = 1.0
+        self.lambda_ewc_max = 500.0
+        self.drift_threshold = getattr(hparams, "drift_threshold", 1e-3)
         self.fisher = 0
         self.old_params = None
         MODEL_MAPPING = {
@@ -51,8 +55,9 @@ class AttentionWorldModel(pl.LightningModule):
         self.visual_func = utils.Visualization(hparams)
 
     def save_old_params(self):
-        """保存当前模型参数作为旧任务的参数，用于EWC"""
-        old_params = {n: p.clone().detach() for n, p in self.named_parameters() if p.requires_grad}
+        """Save current model parameters for EWC, moved to model's device."""
+        device = next(self.parameters()).device
+        old_params = {n: p.clone().detach().to(device) for n, p in self.named_parameters() if p.requires_grad}
         return old_params
     
     # def load_old_params(self, old_params):
@@ -61,9 +66,45 @@ class AttentionWorldModel(pl.LightningModule):
     #         if n in old_params:
     #             p.data.copy_(old_params[n])  # 使用旧参数的值替换当前参数
 
+    def compute_avg_param_drift(self) -> float:
+        drift_sum = 0.0
+        num = 0
+        for name, param in self.named_parameters():
+            if self.old_params is not None and name in self.old_params:
+                drift = (param - self.old_params[name].to(param.device)).pow(2).mean()
+                drift_sum += drift.item()
+                num += 1
+        avg_drift = drift_sum / max(num, 1)
+        return avg_drift
+
+
+    def update_lambda_ewc(self, avg_drift: float):
+        # 初始化 drift history 缓存
+        if not hasattr(self, "_drift_values"):
+            self._drift_values = []
+            self.warmup_steps = getattr(self.hparams, "warmup_steps", 100)
+
+        # 自动 warmup 阈值
+        if self.drift_threshold is None:
+            self._drift_values.append(avg_drift)
+            if len(self._drift_values) == self.warmup_steps:
+                self.drift_threshold = sum(self._drift_values) / len(self._drift_values)
+                print(f"[Auto-tuned] drift_threshold set to {self.drift_threshold:.6f}")
+        else:
+            # 正常 drift 控制 λ
+            if avg_drift > self.drift_threshold:
+                self.lambda_ewc *= 1.2
+            elif avg_drift < self.drift_threshold / 2:
+                self.lambda_ewc *= 0.9
+            self.lambda_ewc = float(torch.clamp(torch.tensor(self.lambda_ewc), self.lambda_ewc_min, self.lambda_ewc_max))
+        
+        # 日志记录
+        self.log("train/avg_param_drift", avg_drift)
+        self.log("train/lambda_ewc", self.lambda_ewc)
 
     def load_old_params(self, old_params):
-        self.old_params = old_params
+        device = next(self.parameters()).device
+        self.old_params = {k: v.to(device) for k, v in old_params.items()}
 
     def compute_fisher(self, dataloader, samples=100):
         fisher = {n: torch.zeros_like(p) for n, p in self.named_parameters() if p.requires_grad}
@@ -133,32 +174,31 @@ class AttentionWorldModel(pl.LightningModule):
         obs_masked = utils.extract_masked_state(obs, self.mask_size, agent_postion_yx_batch)
         return obs_masked, act, obs_next
 
-    def training_step(self, batch, batch_idx):
-        ## load data
-        obs, act, obs_next = self.preprocess_batch(batch)
 
-        ## transform prediction
+    def training_step(self, batch, batch_idx):
+        obs, act, obs_next = self.preprocess_batch(batch)
         obs_pred, attentionWeight = self(obs, act)
+
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
 
-        ## calculate loss
         loss = self.loss_function(obs_pred, obs_next)
         self.log_dict(loss)
 
-        # 添加 EWC 正则项
-        ewc_loss_tensor = torch.tensor(self.ewc_loss(), device=loss['loss_obs'].device) 
-        loss['loss_obs'] += ewc_loss_tensor
-        # print("EWC Loss:", ewc_loss_tensor.item(), "Total Loss:", loss['loss_obs'].item())
+        # 计算 EWC 正则项，并加入主损失
+        ewc_loss_tensor = self.ewc_loss(self.lambda_ewc)
+        loss_total = loss['loss_obs'] + ewc_loss_tensor
 
-        # self.log("train_loss", loss['loss_obs'], on_step=True, on_epoch=True, prog_bar=True, logger=False)
-        
-        ## visualization
+        if self.old_params is not None:
+            avg_drift = self.compute_avg_param_drift()
+            self.update_lambda_ewc(avg_drift)
+
+        # --- 可视化 ---
         self.step_counter += 1
         if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
             self.visual_func.visualize_attention(obs, act, attentionWeight, obs_next, obs_pred, self.step_counter)
 
-        return loss['loss_obs']
+        return loss_total
 
     def validation_step(self, batch, batch_idx):
         obs, act, obs_next = self.preprocess_batch(batch)

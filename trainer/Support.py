@@ -18,7 +18,9 @@ from matplotlib import pyplot as plt
 import pickle
 import random
 from generator.select_valid_data import generate_envs_dataset
-from generator.data.env_dataset_support import replace_vector_value
+from generator.data.env_dataset_support import replace_vector_value, visualize_grid
+
+
 class Support:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -78,6 +80,7 @@ class Support:
         file_names = []
         for idx, key in enumerate(dict):
             map = dict[key]
+            visualize_grid(map, save_flag=True, save_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task_set', idx=f'map_{idx}')  # 这里的路径要主动修改
             map = torch.tensor(map).unsqueeze(0)
             layout_string = generate_obj_map(map, self.cfg.training_generator.map_element)
             color_string = generate_color_map(layout_string)
@@ -146,6 +149,7 @@ class Support:
         # delete the env data file
         if os.path.exists(self.cfg.env.collect.data_save_path):
             os.remove(self.cfg.env.collect.data_save_path)
+
 
 
 

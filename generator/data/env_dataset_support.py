@@ -84,7 +84,7 @@ def is_reachable(grid: List[List[str]]) -> bool:
     else:
         return False  # 存在封闭区域
 
-def visulize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
+def visualize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
 
     if isinstance(grid, torch.Tensor):
         grid = grid.detach().cpu().numpy()
@@ -103,7 +103,7 @@ def visulize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
 
     def show_grid(map, index=''):
         if save_flag:
-            save_file_name = os.path.join(save_path, f'gen_map_{index}.png')
+            save_file_name = os.path.join(save_path, f'gen_{index}.png')
             plt.imshow(map, cmap='viridis')  # 显示图像
             plt.colorbar()
             plt.savefig(save_file_name)  # 保存图像
