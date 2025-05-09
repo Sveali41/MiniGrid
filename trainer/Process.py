@@ -22,7 +22,7 @@ Process
 '''
 
 
-@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_test")
+@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config")
 def run(cfg: DictConfig):
     old_params, fisher = None, None
 

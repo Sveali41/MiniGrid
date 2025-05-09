@@ -49,7 +49,7 @@ attention_model:
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
   use_wandb: True
-  lambda_ewc: 10
+  lambda_ewc: 100
 
   # freeze weights
   freeze_weight: False  # 置true 会加载权重，不会训练模型，用于验证
@@ -80,7 +80,7 @@ PPO:
   # PPO training
   env_type: empty # empty, with obj
   has_continuous_action_space: False
-  max_ep_len: 14000  # max timesteps in one episode 8000
+  max_ep_len: 1000  # max timesteps in one episode 8000
   action_std: 0.1  # set same std for action distribution which was used while saving
   i_episode: 0
   K_epochs: 20  # update policy for K epochs
@@ -90,7 +90,7 @@ PPO:
   lr_critic: 0.001  # learning rate for critic
   checkpoint_path_wm: ${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt
   time_step: 0
-  max_training_timesteps: 1.5e6 #1e6
+  max_training_timesteps: 1e6 #1e6
   # max_training_timesteps: 3e5
   action_std_decay_freq: 1e4
   action_std_decay_rate: 0.95
