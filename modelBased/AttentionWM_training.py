@@ -18,13 +18,17 @@ import numpy as np
 def train(cfg: DictConfig):
     run(cfg)
 
-def run(cfg: DictConfig, old_params=None, fisher=None, layout=None):
+def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=None):
+    print(f'*************************Data set: {cfg.attention_model.data_dir}************************')
     use_wandb = cfg.attention_model.use_wandb
     lambda_ewc = cfg.attention_model.lambda_ewc
     ewc_decay = 0.1
 
     # data
-    dataloader = WMRLDataModule(hparams=cfg.attention_model)
+    if cfg.attention_model.continue_learning:
+        dataloader = WMRLDataModule(hparams=cfg.attention_model, replay_data=replay_data)
+    else:
+        dataloader = WMRLDataModule(hparams=cfg.attention_model, replay_data=None)
     # dataloader.setup()
 
     # Model initialization
@@ -35,7 +39,7 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None):
     if use_wandb:
         wandb_logger = WandbLogger(project="Local_Attention_Training", log_model=True, reinit=True)
         wandb_logger.experiment.watch(net, log='all', log_freq=1000)
-        wandb.log({"env_heatmap": wandb.Image((255*(layout/8)).astype(np.uint8))})
+        # wandb.log({"env_heatmap": wandb.Image((255*(layout/8)).astype(np.uint8))})
 
         
         
@@ -64,6 +68,7 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None):
     # Start the training
     if cfg.attention_model.freeze_weight:
         trainer.validate(net, dataloader)
+        return None, None
     else:
         net.fisher = fisher
         net.old_params = old_params
@@ -71,33 +76,33 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None):
             net.load_old_params(old_params)
             
         trainer.fit(net, dataloader)
-    # trainer.fit(net, dataloader)
-    old_params = net.save_old_params()
-    new_fisher = net.compute_fisher(dataloader.train_dataloader(), samples=100)
+        # trainer.fit(net, dataloader)
+        old_params = net.save_old_params()
+        new_fisher = net.compute_fisher(dataloader.train_dataloader(), samples=3000)
 
-    if fisher is not None:
-        fisher = {
-            k: ewc_decay * fisher[k] + new_fisher[k] for k in new_fisher
-        }
-    else:
-        fisher = new_fisher
+        if fisher is not None:
+            fisher = {
+                k: ewc_decay * fisher[k] + new_fisher[k] for k in new_fisher
+            }
+        else:
+            fisher = new_fisher
 
-    print(type(net.model))
-    # savePath = cfg.attention_model.weight_save_path
-    # torch.save({
-    #     'model': net.model.state_dict(),
-    # }, savePath)
+        print(type(net.model))
+        # savePath = cfg.attention_model.weight_save_path
+        # torch.save({
+        #     'model': net.model.state_dict(),
+        # }, savePath)
 
 
-    model_pth = cfg.attention_model.model_save_path
-    trainer.save_checkpoint(model_pth)
-    if use_wandb:
-        wandb.save(str(model_pth))
-        wandb.save(model_pth)
-    return old_params, fisher
+        model_pth = cfg.attention_model.model_save_path
+        trainer.save_checkpoint(model_pth)
+        if use_wandb:
+            wandb.save(str(model_pth))
+            wandb.save(model_pth)
+        return old_params, fisher
         
-def train_api(cfg: DictConfig, old_params, fisher, env_layout):
-    old_params, fisher = run(cfg, old_params, fisher, env_layout)
+def train_api(cfg: DictConfig, old_params=None, fisher=None, env_layout=None, replay_data=None):
+    old_params, fisher = run(cfg, old_params, fisher, env_layout, replay_data)
     return old_params, fisher
 
 if __name__ == "__main__":

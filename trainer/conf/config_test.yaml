@@ -40,8 +40,8 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 10   # 20
-  lr: 1e-4 # 1e-4 
+  n_epochs: 1   # 20
+  lr: 1e-3 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
   action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
@@ -61,7 +61,8 @@ attention_model:
   save_path: ${oc.env:TRAINER_PATH}/visulization
   direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
   action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
-  lambda_ewc: 100
+  lambda_ewc: 500
+  continue_learning: True
 
   # 4. PPO model for final task
 PPO:
@@ -103,7 +104,7 @@ PPO:
   visualize: false
   save_gif: True
   save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
-  save_csv: True
+  save_csv: False
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
   use_wandb: False
   wandb_run_name: None

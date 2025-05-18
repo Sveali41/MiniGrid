@@ -103,7 +103,7 @@ PPO:
   visualize: false
   save_gif: True
   save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
-  save_csv: True
+  save_csv: False
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
   use_wandb: True
   wandb_run_name: None

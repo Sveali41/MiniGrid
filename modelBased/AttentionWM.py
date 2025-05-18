@@ -128,17 +128,25 @@ class AttentionWorldModel(pl.LightningModule):
             count += 1
         for n in fisher:
             fisher[n] /= count
+        # for k in fisher:
+        #     fisher[k] = torch.sqrt(fisher[k] + 1e-8)
+        #     fisher[k] *= 5
+        all_f = torch.cat([f.flatten() for f in fisher.values()])
+        print(f"[Fisher] mean={all_f.mean():.3e}, max={all_f.max():.3e}, min={all_f.min():.3e}")
         return fisher
 
     def ewc_loss(self, lambda_ewc=10.0):
-        if self.fisher is None:
-            return 0.0
-        loss = 0.0
+        if self.fisher is None or self.old_params is None:
+            return torch.tensor(0.0, device=next(self.parameters()).device)
+        
         device = next(self.parameters()).device
+        loss = torch.tensor(0.0, device=device)  
         for n, p in self.named_parameters():
+            if n in self.fisher and n in self.old_params:
                 fisher = self.fisher[n].to(device)
                 p_old = self.old_params[n].to(device)
                 loss += (fisher * (p - p_old).pow(2)).sum()
+
         return lambda_ewc * loss
 
 
@@ -188,6 +196,16 @@ class AttentionWorldModel(pl.LightningModule):
         # 计算 EWC 正则项，并加入主损失
         ewc_loss_tensor = self.ewc_loss(self.lambda_ewc)
         loss_total = loss['loss_obs'] + ewc_loss_tensor
+
+        # --- Logging ---
+        self.log_dict(loss)
+        self.log("train/ewc_loss", ewc_loss_tensor)
+        self.log("train/loss_total", loss_total)
+
+        if self.global_step % 200 == 0:
+            print(f"[Step {self.global_step}] loss_obs: {loss['loss_obs'].item():.6f}, "
+                  f"ewc_loss: {ewc_loss_tensor.item():.6f}, total: {loss_total.item():.6f}")
+
 
         if self.old_params is not None:
             avg_drift = self.compute_avg_param_drift()

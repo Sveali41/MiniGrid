@@ -14,6 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 from typing import Optional
 from func_timeout import func_set_timeout  # Ensure you have this package
+from modelBased.common.utils import merge_data_dicts
 
 
 def extract_agent_cross_mask(state):
@@ -118,7 +119,7 @@ class WMRLDataset(Dataset):
         return {key: self.data[key][idx] for key in self.data}  # Return a dictionary of all data items
 
 class WMRLDataModule(pl.LightningDataModule):
-    def __init__(self, hparams=None, data: Optional[Dict[str, np.ndarray]] = None):
+    def __init__(self, hparams=None, data: Optional[Dict[str, np.ndarray]] = None, replay_data: Optional[Dict[str, np.ndarray]] = None):
         """
         Initialize with hyperparameters and optionally directly with data.
 
@@ -130,6 +131,7 @@ class WMRLDataModule(pl.LightningDataModule):
         self.save_hyperparameters(hparams)
         self.data_dir = self.hparams.data_dir
         self.direct_data = data  # Store the data passed directly
+        self.replay_data = replay_data
         
     def setup(self, stage: Optional[str] = None):
         if self.direct_data is not None:
@@ -137,6 +139,9 @@ class WMRLDataModule(pl.LightningDataModule):
         else:
             # Load data from a file if `self.data_dir` is set and data is not provided directly
             loaded = np.load(self.data_dir, allow_pickle=True) # Allow pickle for safety with complex data structures
+        if self.replay_data is not None:
+            print(f"Adding replay buffer with {len(self.replay_data['a'])} samples.")
+            loaded = merge_data_dicts(loaded, self.replay_data)
         data = WMRLDataset(loaded, self.hparams)
         split_size = int(len(data) * 9 / 10)
         self.data_train, self.data_test = torch.utils.data.random_split(

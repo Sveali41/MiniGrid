@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import torch
 from . import utilis_support
+from typing import Dict
 
 def replace_values(arr, old_values, new_values):
     assert arr.ndim >= 2 and len(old_values) == len(new_values)
@@ -339,6 +340,17 @@ def get_env(env_name: str, default: Optional[str] = None) -> str:
 
 def load_envs(env_file: Optional[str] = '.env') -> None:
     dotenv.load_dotenv(dotenv_path=env_file, override=True)
+
+
+def merge_data_dicts(d1: Dict[str, np.ndarray], d2: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    merged = {}
+    for key in d1.keys():
+        if key in d2:
+            merged[key] = np.concatenate([d1[key], d2[key]], axis=0)
+        else:
+            merged[key] = d1[key]
+    return merged
+
 
 load_envs()
 PROJECT_ROOT : Path = Path(get_env("PROJECT_ROOT"))
