@@ -59,11 +59,11 @@ def extract_agent_cross_mask(state):
 
 class WMRLDataset(Dataset):
     @func_set_timeout(100)
-    def __init__(self, loaded, hparams):
+    def __init__(self, loaded, hparams, replay_data=None):
         self.hparams = hparams
         self.obs_norm_values = hparams.obs_norm_values
         self.act_norm_values = hparams.action_norm_values
-        self.data = self.make_data(loaded)
+        self.data = self.make_data(loaded, replay_data)
 
     def state_batch_preprocess(self, state):
         obs = np.zeros((state.shape[0], 3, 3, state.shape[-1])) # The mask will extract a 3x3 square around the agent
@@ -72,29 +72,33 @@ class WMRLDataset(Dataset):
         return obs
 
     @func_set_timeout(1000)
-    def make_data(self, loaded):
+    def make_data(self, loaded, replay_data=None):
         mask_size = self.hparams.attention_mask_size
         B, row, col, channel = loaded['a'].shape
         obs = loaded['a']
         obs_next = loaded['b']
         act = loaded['c']
+
+        if replay_data is not None:
+            # If replay data is provided, merge it with the loaded data
+            obs = np.concatenate((obs, replay_data['obs']), axis=0)
+            obs_next = np.concatenate((obs_next, replay_data['obs_next']), axis=0)
+            act = np.concatenate((act, replay_data['act']), axis=0)
+            print(f"Adding replay buffer with {len(replay_data['obs'])} samples.")
         
         if self.hparams.data_type == 'norm':
-            obs = normalize_obs(loaded['a'], self.obs_norm_values)
-            obs_next = normalize_obs(loaded['b'], self.obs_norm_values)
+            obs = normalize_obs(obs, self.obs_norm_values)
+            obs_next = normalize_obs(obs_next, self.obs_norm_values)
             act = act.astype(np.float32) / self.act_norm_values 
             obs_delta = obs_next.astype(np.float32)-obs.astype(np.float32)
 
         elif self.hparams.data_type == 'discrete':
-            obs = loaded['a']
-            obs_next = loaded['b']
-            act = loaded['c']
             # obs[:,0,:,:] = utils.replace_values(obs[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
             # obs[:,1,:,:] = utils.replace_values(obs[:,1,:,:], np.array([5]), np.array([2]))
 
             # obs_next[:,0,:,:] = utils.replace_values(obs_next[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
             # obs_next[:,1,:,:] = utils.replace_values(obs_next[:,1,:,:], np.array([5]), np.array([2]))
-            obs_delta = obs_next.astype(np.int16)- obs.astype(np.int16)
+            obs_delta = obs_next.astype(np.int16) - obs.astype(np.int16)
         else:
             raise ValueError(f"Invalid data type: {self.hparams.data_type}")
 
@@ -139,10 +143,7 @@ class WMRLDataModule(pl.LightningDataModule):
         else:
             # Load data from a file if `self.data_dir` is set and data is not provided directly
             loaded = np.load(self.data_dir, allow_pickle=True) # Allow pickle for safety with complex data structures
-        if self.replay_data is not None:
-            print(f"Adding replay buffer with {len(self.replay_data['a'])} samples.")
-            loaded = merge_data_dicts(loaded, self.replay_data)
-        data = WMRLDataset(loaded, self.hparams)
+        data = WMRLDataset(loaded, self.hparams, self.replay_data)
         split_size = int(len(data) * 9 / 10)
         self.data_train, self.data_test = torch.utils.data.random_split(
             data, [split_size, len(data) - split_size]

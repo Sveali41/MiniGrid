@@ -106,7 +106,7 @@ class AttentionWorldModel(pl.LightningModule):
         device = next(self.parameters()).device
         self.old_params = {k: v.to(device) for k, v in old_params.items()}
 
-    def compute_fisher(self, dataloader, samples=100):
+    def compute_fisher(self, dataloader, samples=1000, scale_factor=500):
         fisher = {n: torch.zeros_like(p) for n, p in self.named_parameters() if p.requires_grad}
         self.eval()
         device = next(self.parameters()).device
@@ -120,8 +120,8 @@ class AttentionWorldModel(pl.LightningModule):
             act = act.to(device)
             obs_next = obs_next.to(device).float()
             obs_pred, _ = self(obs, act)
-            loss = self.loss_function(obs_pred, obs_next)['loss_obs']
-            loss.backward()
+            loss = scale_factor * self.loss_function(obs_pred, obs_next)['loss_obs']
+            loss.backward(retain_graph=False)
             for n, p in self.named_parameters():
                 if p.grad is not None:
                     fisher[n] += p.grad.detach().pow(2)
@@ -191,7 +191,6 @@ class AttentionWorldModel(pl.LightningModule):
             obs_next = obs_next.float()
 
         loss = self.loss_function(obs_pred, obs_next)
-        self.log_dict(loss)
 
         # 计算 EWC 正则项，并加入主损失
         ewc_loss_tensor = self.ewc_loss(self.lambda_ewc)
@@ -241,7 +240,7 @@ class AttentionWorldModel(pl.LightningModule):
         df = pd.DataFrame(losses, columns=["loss_wm_val"])
 
         # 保存为 CSV（不包含 index）
-        df.to_csv("validation_21*21_emb_mask5.csv", index=False, header=False)
+        # df.to_csv("validation_21*21_emb_mask5.csv", index=False, header=False)
         # 绘制 loss 变化曲线
         # import matplotlib.pyplot as plt
         # plt.figure(figsize=(8, 5))

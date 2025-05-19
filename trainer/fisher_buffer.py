@@ -2,12 +2,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import List, Dict, Tuple
+from modelBased.common import utils
 
 
 class FisherReplayBuffer:
     def __init__(self, max_size: int = 1000):
         self.buffer = []
         self.max_size = max_size
+        self.mask_size = 3  # Cross mask size
 
     def compute_proxy_score_batch(
         self,
@@ -20,21 +22,28 @@ class FisherReplayBuffer:
         scores = []
 
         with torch.no_grad():
-            obs = torch.tensor(samples['obs'])
-            act = torch.tensor(samples['act'])
-            obs_next = torch.tensor(samples['obs_next'])
-            for i in range(act.shape[0]):
-                pred, _ = model(obs[i], act[i])
-                loss = F.mse_loss(pred, obs_next[i]).item()
+            obs = torch.tensor(samples['obs']).to(device).float()
+            act = torch.tensor(samples['act']).to(device)
+            obs_next = torch.tensor(samples['obs_next']).to(device).float()
+            agent_postion_yx_batch = utils.get_agent_position(obs)
+            agent_postion_yx_batch_next = utils.get_agent_position(obs_next)
+            obs_masked = utils.extract_masked_state(obs, self.mask_size, agent_postion_yx_batch)
+            obs_next_masked = utils.extract_masked_state(obs_next, self.mask_size, agent_postion_yx_batch_next)
+            pred, _ = model(obs_masked, act)
+            loss = [F.mse_loss(pred[i], obs_next_masked[i]).item() for i in range(len(pred))]
 
-                # 可选加权项，例如状态变化量
-                delta = (obs_next - obs).abs().mean().item()
-                score = loss + 0.1 * delta  # 组合得分（你可以调系数）
+              # 计算每个样本的损失
 
-                scores.append((score, sample))
-
-        scores.sort(key=lambda x: -x[0])  # 按得分降序
-        return scores[:top_k]
+            # 可选加权项，例如状态变化量
+            delta = [(obs_next[i] - obs[i]).abs().mean().item() for i in range(len(obs_next))]
+            score = [l + 0.1 * d for l, d in zip(loss, delta)] # 组合得分（你可以调系数）
+        
+            scored_samples = list(zip(score, [dict(obs=samples['obs'][i],
+                                           act=samples['act'][i],
+                                           obs_next=samples['obs_next'][i]) for i in range(len(score))]))
+        scored_samples.sort(key=lambda x: -x[0])
+        top_k_samples = [s for _, s in scored_samples[:top_k]]
+        return top_k_samples
 
 
     def select_important_samples(
@@ -45,7 +54,7 @@ class FisherReplayBuffer:
         top_k: int = 50
     ) -> List[Dict]:
         scored = self.compute_proxy_score_batch(model, samples, top_k)
-        return [s for _, s in scored]
+        return scored
     
 
     def update_with_top_k_recent(self, samples: Dict, model: torch.nn.Module, fisher: Dict[str, torch.Tensor], recent_k: int = 200, top_k: int = 50):

@@ -6,6 +6,7 @@ from modelBased import AttentionWM_training, PPO_world_training
 from datetime import datetime
 import hydra
 import os
+import torch
 
 
 '''
@@ -42,6 +43,7 @@ def collect_data(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_test")
 def test_1(cfg: DictConfig):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     from fisher_buffer import FisherReplayBuffer
     from modelBased.AttentionWM import AttentionWorldModel
     import numpy as np
@@ -76,8 +78,8 @@ def test_1(cfg: DictConfig):
             'obs_next': task_npz['b'],
             'act': task_npz['c'],
         }
-        model_eval = AttentionWorldModel(cfg.attention_model)
-        fisher_buffer.update_with_top_k_recent(samples, model=model_eval, fisher=fisher, recent_k=10, top_k=5)
+        model_eval = AttentionWorldModel(cfg.attention_model).to(device)
+        fisher_buffer.update_with_top_k_recent(samples, model=model_eval, fisher=fisher, recent_k=20000, top_k=10000)
 
     # === 最后评估 ===
     cfg.attention_model.freeze_weight = True
@@ -89,8 +91,9 @@ def test_1(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_test")
 def test_2(cfg: DictConfig):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     old_params, fisher = None, None
-    env_text_file_name = ['env1_test.txt']
+    env_text_file_name = ['env2_test.txt']
     step_len = len(env_text_file_name)
 
     for step in range(step_len):
@@ -110,4 +113,4 @@ def test_2(cfg: DictConfig):
 
     
 if __name__ == "__main__":
-    test_1()
+    test_2()
