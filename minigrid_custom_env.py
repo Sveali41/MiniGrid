@@ -338,9 +338,10 @@ if __name__ == "__main__":
 
 
     # 2. generate env from text file
-    env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task.txt', 
+    env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/env1_keydoor.txt', 
                                         custom_mission="Find the key and open the door.",
                                         max_steps=5000, render_mode='human'))
+    env.reset()
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
     

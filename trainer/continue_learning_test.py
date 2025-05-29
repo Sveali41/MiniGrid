@@ -26,7 +26,7 @@ Process
 def collect_data(cfg: DictConfig):
     support = Support.Support(cfg)
     support.del_env_data_file()  # clear the data_save_path
-    env_text_file_name = ['env1_test.txt','env2_test.txt']
+    env_text_file_name = ['env2_with_keydoor.txt']
     file_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'level'))
     step_len = len(env_text_file_name)
 
@@ -51,7 +51,7 @@ def test_1(cfg: DictConfig):
     fisher_buffer = FisherReplayBuffer(max_size=10000)
     old_params, fisher = None, None
 
-    env_text_file_name = ['env1_test.txt', 'env2_test.txt']
+    env_text_file_name = ['env1_test.txt', 'env2_test.txt','env1_move.txt', 'env2_move.txt']
     step_len = len(env_text_file_name)
     data_save_dir = '/home/siyao/project/rlPractice/MiniGrid/trainer/data'
 
@@ -79,11 +79,13 @@ def test_1(cfg: DictConfig):
             'act': task_npz['c'],
         }
         model_eval = AttentionWorldModel(cfg.attention_model).to(device)
-        fisher_buffer.update_with_top_k_recent(samples, model=model_eval, fisher=fisher, recent_k=20000, top_k=10000)
+        # fisher_buffer.update_with_top_k_recent(samples, model=model_eval, fisher=fisher, recent_k=20000, top_k=10000)
+        fisher_buffer.update_with_random(samples, recent_k=20000, random_k=10000)
+        # *add the function: add data to the fisher buffer by proprotional sampling
 
     # === 最后评估 ===
     cfg.attention_model.freeze_weight = True
-    for test_file in ['env1_test.npz', 'env2_test.npz']:
+    for test_file in ['env1_test.npz', 'env2_test.npz', 'env1_move.npz', 'env2_move.npz']:
         cfg.attention_model.data_dir = os.path.join(data_save_dir, test_file)
         AttentionWM_training.train_api(cfg)
 
@@ -93,7 +95,7 @@ def test_1(cfg: DictConfig):
 def test_2(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     old_params, fisher = None, None
-    env_text_file_name = ['env2_test.txt']
+    env_text_file_name = ['env1_test.txt']
     step_len = len(env_text_file_name)
 
     for step in range(step_len):
@@ -113,4 +115,6 @@ def test_2(cfg: DictConfig):
 
     
 if __name__ == "__main__":
-    test_2()
+    # collect_data()
+    test_1()
+    # test_2()

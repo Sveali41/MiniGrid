@@ -48,7 +48,7 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=
 
     # Define the trainer
     metric_to_monitor = 'avg_val_loss_wm'
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=5, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
         save_top_k=1,
         monitor=metric_to_monitor,
@@ -78,7 +78,7 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=
         trainer.fit(net, dataloader)
         # trainer.fit(net, dataloader)
         old_params = net.save_old_params()
-        new_fisher = net.compute_fisher(dataloader.train_dataloader(), samples=3000)
+        new_fisher = net.compute_fisher(dataloader.train_dataloader(), samples=3000, scale_factor= 100)
 
         if fisher is not None:
             fisher = {

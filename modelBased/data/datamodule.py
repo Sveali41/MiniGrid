@@ -74,16 +74,21 @@ class WMRLDataset(Dataset):
     @func_set_timeout(1000)
     def make_data(self, loaded, replay_data=None):
         mask_size = self.hparams.attention_mask_size
+        env_type = self.hparams.env_type
         B, row, col, channel = loaded['a'].shape
         obs = loaded['a']
         obs_next = loaded['b']
         act = loaded['c']
+        if env_type == 'with_obj':
+            info = loaded['f']
 
         if replay_data is not None:
             # If replay data is provided, merge it with the loaded data
             obs = np.concatenate((obs, replay_data['obs']), axis=0)
             obs_next = np.concatenate((obs_next, replay_data['obs_next']), axis=0)
             act = np.concatenate((act, replay_data['act']), axis=0)
+            if env_type == 'with_obj':
+                info = np.concatenate((info, replay_data.get('info', np.empty((0, 0)))), axis=0) if 'info' in replay_data else info
             print(f"Adding replay buffer with {len(replay_data['obs'])} samples.")
         
         if self.hparams.data_type == 'norm':
@@ -91,6 +96,7 @@ class WMRLDataset(Dataset):
             obs_next = normalize_obs(obs_next, self.obs_norm_values)
             act = act.astype(np.float32) / self.act_norm_values 
             obs_delta = obs_next.astype(np.float32)-obs.astype(np.float32)
+
 
         elif self.hparams.data_type == 'discrete':
             # obs[:,0,:,:] = utils.replace_values(obs[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
@@ -106,11 +112,19 @@ class WMRLDataset(Dataset):
             agent_position_yx = utils.get_agent_position(obs)
             obs_delta = utils.extract_masked_state(obs_delta, mask_size, agent_position_yx)
 
-        data = {
-            'obs': obs,
-            'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
-            'act': act,
-        }
+        if env_type == 'with_obj':
+            data = {
+                'obs': obs,
+                'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
+                'act': act,
+                'info': info,
+            }
+        else:
+            data = {
+                'obs': obs,
+                'obs_next': obs_delta,  # obs_next is the delta between the current state and the next state
+                'act': act,
+            }
         return data
         
 

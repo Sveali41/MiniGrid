@@ -129,7 +129,7 @@ def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N
 
 
 def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
-    obs_list, obs_next_list, act_list, rew_list, done_list = [], [], [], [], []
+    obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
 
@@ -137,28 +137,35 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
     visit_count = {}
 
     # Define meaningful actions (forward, turn_left, turn_right)
-    meaningful_actions = [env.unwrapped.actions.forward, env.unwrapped.actions.left, env.unwrapped.actions.right]
+    meaningful_actions = [env.unwrapped.actions.forward, env.unwrapped.actions.left, env.unwrapped.actions.right, env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
 
     # Use tqdm for progress tracking
     with tqdm(total=cfg.collect.episodes, desc="Collecting Episodes") as pbar:
+
         while episodes < cfg.collect.episodes:
             obs_list.append([obs['image']])
 
             # Select an action
             if policy is None:
-                act = np.random.choice(meaningful_actions, p=[0.6, 0.2, 0.2])  # Weighted random sampling
+                act = np.random.choice(meaningful_actions, p=[0.3, 0.15, 0.15, 0.2, 0.2])  # Weighted random sampling
             else:
                 state_norm = normalize_obs(obs['image']).to(device)
                 act = policy.select_action(state_norm)
 
             # Step in the environment
-            obs_next, reward, done, trunc, _ = env.step(act)
+            obs_next, reward, done, trunc, info = env.step(act)
+            if env.env.carrying and env.env.carrying.type == 'key':
+                info['carrying_key'] = True
+            else:
+                info['carrying_key'] = False
+
 
             # Collect data
             act_list.append([act])
             obs_next_list.append([obs_next['image']])
             rew_list.append([reward])
             done_list.append([done])
+            info_list.append([info])
 
             # Update visit count and RMax exploration
             state_action_key = (tuple(obs['image'].flatten()), act)
@@ -187,6 +194,7 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
     act_np = np.concatenate(act_list)
     rew_np = np.concatenate(rew_list)
     done_np = np.concatenate(done_list)
+    info_np = np.concatenate(info_list)
 
     # Log statistics
     print(f"Observation shape: {obs_np.shape}")
@@ -197,13 +205,13 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
     print(f"Number of episodes started: {episodes}")
     print(f"Unique state-action pairs visited: {len(visit_count)}")
 
-    return obs_np, obs_next_np, act_np, rew_np, done_np
+    return obs_np, obs_next_np, act_np, rew_np, done_np, info_np
 
 
-def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done):
+def save_experiments(cfg: DictConfig, obs, obs_next, act, rew, done, info=None):
     obs = ColRowCanl_to_CanlRowCol(obs)
     obs_next = ColRowCanl_to_CanlRowCol(obs_next)
-    np.savez_compressed(cfg.collect.data_save_path, a=obs, b=obs_next, c=act, d=rew, e=done)
+    np.savez_compressed(cfg.collect.data_save_path, a=obs, b=obs_next, c=act, d=rew, e=done, f=info)
 
 def data_augmentation(cfg: DictConfig, obs, obs_next, act, rew, done):
     """
@@ -247,7 +255,7 @@ def data_collect(cfg: DictConfig):
 
 def data_collect_api(cfg: DictConfig, env):
     hparam = cfg.env
-    obs, obs_next, act,rew, done = run_env(env, hparam)
+    obs, obs_next, act,rew, done, info = run_env(env, hparam)
         # 指定要过采样的动作：pickup 和 toggle
     # actions_to_oversample = [env.unwrapped.actions.toggle]
     # obs, obs_next, act, rew, done = augment_interactions(
@@ -255,7 +263,7 @@ def data_collect_api(cfg: DictConfig, env):
     #     actions_to_oversample,
     #     N=10  # 过采样倍数
     # )
-    save_experiments(cfg.env,obs,obs_next, act, rew, done)
+    save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
 if __name__ == "__main__": 
     data_collect() 

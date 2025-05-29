@@ -54,6 +54,7 @@ class AttentionModule(nn.Module):
         if data_type == 'discrete':
             self.input_channel = 21
             self.action_embedding = nn.Embedding(7, embed_dim)
+            self.key_embedding    = nn.Embedding(2, embed_dim)
         else:
             self.input_channel = grid_shape[0]
             self.action_fc = nn.Linear(1, embed_dim)
@@ -80,8 +81,9 @@ class AttentionModule(nn.Module):
             for _ in range(1)
         ])
         self.fc = nn.Linear(embed_dim, 3)
+        self.act_key_fc = nn.Linear(embed_dim * 2, embed_dim)
 
-    def forward(self, state, action):
+    def forward(self, state, action, info):
         orginal_dim = state.ndim
         if orginal_dim == 3:  # 单个样本
             state = state.unsqueeze(0)  # 变为 (1, C, H, W)
@@ -98,7 +100,11 @@ class AttentionModule(nn.Module):
             state_emb = torch.cat([obj, color, dir], dim=-1).float()
             state_emb = state_emb.transpose(1,2).reshape(B, self.input_channel, H, W)
             action_emb = self.action_embedding(action)
-
+            if info is not None and 'carrying_key' in info:
+                has_key = info['carrying_key']
+                key_emb = self.key_embedding(has_key.long())     # (B, D)
+                ak = torch.cat([action_emb, key_emb], dim=-1)      # (B, 2D)
+                action_emb = self.act_key_fc(ak)   
         else:
             action_emb = self.action_fc(action.unsqueeze(1))  # (B, embed_dim)
             state_emb = state

@@ -29,6 +29,7 @@ class AttentionWorldModel(pl.LightningModule):
         self.drift_threshold = getattr(hparams, "drift_threshold", 1e-3)
         self.fisher = 0
         self.old_params = None
+        self.env_type = hparams.env_type
         MODEL_MAPPING = {
             'attention': AttentionWM_support.AttentionModule,
             'embedding': Embedding_support.EmbeddingModule,
@@ -106,7 +107,7 @@ class AttentionWorldModel(pl.LightningModule):
         device = next(self.parameters()).device
         self.old_params = {k: v.to(device) for k, v in old_params.items()}
 
-    def compute_fisher(self, dataloader, samples=1000, scale_factor=500):
+    def compute_fisher(self, dataloader, samples=1000, scale_factor=10):
         fisher = {n: torch.zeros_like(p) for n, p in self.named_parameters() if p.requires_grad}
         self.eval()
         device = next(self.parameters()).device
@@ -115,11 +116,12 @@ class AttentionWorldModel(pl.LightningModule):
             if count >= samples:
                 break
             self.zero_grad()
-            obs, act, obs_next = self.preprocess_batch(batch)
+
+            obs, act, obs_next, info = self.preprocess_batch(batch)
             obs = obs.to(device).float()
             act = act.to(device)
             obs_next = obs_next.to(device).float()
-            obs_pred, _ = self(obs, act)
+            obs_pred, _ = self(obs, act, info)
             loss = scale_factor * self.loss_function(obs_pred, obs_next)['loss_obs']
             loss.backward(retain_graph=False)
             for n, p in self.named_parameters():
@@ -135,7 +137,7 @@ class AttentionWorldModel(pl.LightningModule):
         print(f"[Fisher] mean={all_f.mean():.3e}, max={all_f.max():.3e}, min={all_f.min():.3e}")
         return fisher
 
-    def ewc_loss(self, lambda_ewc=10.0):
+    def ewc_loss(self, lambda_ewc=10):
         if self.fisher is None or self.old_params is None:
             return torch.tensor(0.0, device=next(self.parameters()).device)
         
@@ -151,8 +153,8 @@ class AttentionWorldModel(pl.LightningModule):
 
 
 
-    def forward(self, state, action):
-        next_state_pred, attentionWeight = self.model(state, action)
+    def forward(self, state, action, info):
+        next_state_pred, attentionWeight = self.model(state, action, info)
         
         return next_state_pred, attentionWeight
 
@@ -178,14 +180,18 @@ class AttentionWorldModel(pl.LightningModule):
         obs = batch['obs']
         act = batch['act']
         obs_next = batch['obs_next']
+        if self.env_type == 'with_obj':
+            info = batch['info']
+        else:
+            info = None
         agent_postion_yx_batch = utils.get_agent_position(obs)
         obs_masked = utils.extract_masked_state(obs, self.mask_size, agent_postion_yx_batch)
-        return obs_masked, act, obs_next
+        return obs_masked, act, obs_next, info
 
 
     def training_step(self, batch, batch_idx):
-        obs, act, obs_next = self.preprocess_batch(batch)
-        obs_pred, attentionWeight = self(obs, act)
+        obs, act, obs_next, info = self.preprocess_batch(batch)
+        obs_pred, attentionWeight = self(obs, act, info)
 
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
@@ -218,8 +224,8 @@ class AttentionWorldModel(pl.LightningModule):
         return loss_total
 
     def validation_step(self, batch, batch_idx):
-        obs, act, obs_next = self.preprocess_batch(batch)
-        obs_pred, attention_weight = self(obs, act)
+        obs, act, obs_next, info = self.preprocess_batch(batch)
+        obs_pred, attention_weight = self(obs, act, info)
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)
