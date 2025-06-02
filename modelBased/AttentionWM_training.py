@@ -48,7 +48,7 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=
 
     # Define the trainer
     metric_to_monitor = 'avg_val_loss_wm'
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=10, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=15, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
         save_top_k=1,
         monitor=metric_to_monitor,
@@ -67,8 +67,8 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=
 
     # Start the training
     if cfg.attention_model.freeze_weight:
-        trainer.validate(net, dataloader)
-        return None, None
+        avg_val_loss = trainer.validate(net, dataloader)
+        return avg_val_loss, None
     else:
         net.fisher = fisher
         net.old_params = old_params

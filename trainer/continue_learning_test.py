@@ -51,7 +51,8 @@ def test_1(cfg: DictConfig):
     fisher_buffer = FisherReplayBuffer(max_size=10000)
     old_params, fisher = None, None
 
-    env_text_file_name = ['env1_test.txt', 'env2_test.txt','env1_move.txt', 'env2_move.txt']
+    env_text_file_name = ['env1_test.txt', 'env2_test.txt', 'env2_move.txt', 'env3_move.txt', 'env4_move.txt']
+    # env_text_file_name = ['env1_test.txt']
     step_len = len(env_text_file_name)
     data_save_dir = '/home/siyao/project/rlPractice/MiniGrid/trainer/data'
 
@@ -80,12 +81,13 @@ def test_1(cfg: DictConfig):
         }
         model_eval = AttentionWorldModel(cfg.attention_model).to(device)
         # fisher_buffer.update_with_top_k_recent(samples, model=model_eval, fisher=fisher, recent_k=20000, top_k=10000)
-        fisher_buffer.update_with_random(samples, recent_k=20000, random_k=10000)
+        fisher_buffer.update_with_random_by_ratio(samples, 0.4)
         # *add the function: add data to the fisher buffer by proprotional sampling
 
     # === 最后评估 ===
     cfg.attention_model.freeze_weight = True
-    for test_file in ['env1_test.npz', 'env2_test.npz', 'env1_move.npz', 'env2_move.npz']:
+    for test_file in ['env1_test.npz', 'env2_test.npz',  'env2_move.npz', 'env3_move.npz']:
+    # for test_file in ['env1_test.npz']:
         cfg.attention_model.data_dir = os.path.join(data_save_dir, test_file)
         AttentionWM_training.train_api(cfg)
 

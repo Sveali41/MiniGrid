@@ -207,7 +207,7 @@ class AttentionWorldModel(pl.LightningModule):
         self.log("train/ewc_loss", ewc_loss_tensor)
         self.log("train/loss_total", loss_total)
 
-        if self.global_step % 200 == 0:
+        if self.global_step % 1000 == 0:
             print(f"[Step {self.global_step}] loss_obs: {loss['loss_obs'].item():.6f}, "
                   f"ewc_loss: {ewc_loss_tensor.item():.6f}, total: {loss_total.item():.6f}")
 
@@ -231,7 +231,7 @@ class AttentionWorldModel(pl.LightningModule):
         loss = self.loss_function(obs_pred, obs_next)
         # print(torch.round(obs_pred))
         self.log_dict(loss)
-                ## visualization
+        ## visualization
         self.step_counter += 1
         if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
             self.visual_func.visualize_attention(obs, act, attention_weight, obs_next, obs_pred, self.step_counter)

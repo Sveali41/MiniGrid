@@ -15,10 +15,14 @@ training_generator:
   pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifer.ckpt #${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
   validation_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt 
   map_element: {'E': 1, 'W': 2, 'G':8 } #{'E': 0, 'W': 1, 'K': 2, 'D': 3, 'S': 4, 'G': 5}
+  dynamic_objects: [8]
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
-  use_wandb: False
+  use_wandb: True
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500.pkl
+  learning_buffer_size: 5000 # 5000
+  learning_buffer_threshold: 0.0001
+  learning_steps: 200 # 1000
   
 
 # 2.collect data from the generated env
@@ -27,6 +31,7 @@ env:
   visualize: False # to choose whether your want to see the env during interaction or not
   collect:
     episodes: 500  # 500 number of episodes to start 
+    data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
 
 # 3. attension model
@@ -35,13 +40,13 @@ attention_model:
   data_type: discrete # 'norm' or 'discrete'  # 这两种类型效果都还不错 20250213
   model_type: Attention       # Attention, Embedding, MLP
   grid_shape: [3, 0, 0]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
-  attention_mask_size: 3
+  attention_mask_size: 5
   batch_size: 128  # test 64/128/256
   n_cpu: 8
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 25   # 20
+  n_epochs: 30   # 25
   lr: 1e-3 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 

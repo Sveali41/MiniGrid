@@ -51,7 +51,7 @@ def train(cfg: DictConfig):
         metric_to_monitor = 'd_loss' #"loss"
     elif hparams.training_generator.generator == "vae":
         metric_to_monitor = 'train_loss'
-    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.001, patience=20, verbose=True, mode="min")
+    early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.001, patience=10, verbose=True, mode="min")
     checkpoint_callback = ModelCheckpoint(
                             save_top_k=1,
                             monitor = metric_to_monitor,

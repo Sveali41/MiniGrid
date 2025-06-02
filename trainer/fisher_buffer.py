@@ -73,6 +73,34 @@ class FisherReplayBuffer:
         if len(self.buffer) > self.max_size:
             self.buffer = self.buffer[-self.max_size:]
     
+    def update_with_random_by_ratio(
+        self,
+        samples: Dict,
+        ratio: float = 0.5
+     ):
+        # 1. 不再做 recent_k 截断，直接使用全体 samples
+        total_len = len(samples['obs'])
+        insert_k = int(self.max_size * ratio)
+
+        indices = list(range(total_len))
+        random.shuffle(indices)
+        selected_indices = indices[:insert_k]
+
+        selected = []
+        for i in selected_indices:
+            sample = {
+                'obs': samples['obs'][i],
+                'act': samples['act'][i],
+                'obs_next': samples['obs_next'][i]
+            }
+            if 'info' in samples:
+                sample['info'] = samples['info'][i]
+            selected.append(sample)
+
+        self.buffer.extend(selected)
+        if len(self.buffer) > self.max_size:
+            self.buffer = self.buffer[-self.max_size:]
+
     def update_with_random(
         self,
         samples: Dict,
@@ -80,6 +108,7 @@ class FisherReplayBuffer:
         random_k: int = 10000
     ):
         # 限制 recent_k 大小
+        # add the function and add the data by propotional sampling
         for k in ['obs', 'act', 'obs_next', 'info']:
             if k in samples:
                 samples[k] = samples[k][:recent_k]

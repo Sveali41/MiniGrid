@@ -17,8 +17,11 @@ from modelBased.data.datamodule import *
 from matplotlib import pyplot as plt
 import pickle
 import random
-from generator.select_valid_data import generate_envs_dataset
+from generator.data.env_dataset_support import generate_envs_dataset
 from generator.data.env_dataset_support import replace_vector_value, visualize_grid
+from learning_buffer import EnvLearningBuffer
+from generator.data.env_dataset_support import is_reachable
+from modelBased import AttentionWM_training, PPO_world_training
 
 
 class Support:
@@ -75,19 +78,81 @@ class Support:
         
     # def complete_map_from_MAP_sample(self, env):
 
-    def generate_final_task(self, rows, cols, num_maps):
-        dict = generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_range=(0, 0), key_p_range=(0,0), max_len = 1e7,random_gen_max=3e4)
+    def loading_tasks(self, cfg):
+        if cfg.training_generator.elites_path is not None:
+            # load the elites from the MAP sample
+            env_database = self.load_sample_MAP(cfg.training_generator.elites_path)
+            file_dir = None
+        else:
+            # for testing
+            env_database = ['env1_move.txt','env2_move.txt','env3_move.txt', 'env3_move.txt']
+            file_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'level'))
+        return env_database, file_dir
+
+
+    def generate_env_from_generator(self, cfg, env_database=None,file_dir=None):
+        print("++++++++++++++++++++++++++++++++++++ generating environment... ++++++++++++++++++++++++++++++++++++++++++++++")
+        if cfg.training_generator.elites_path is not None:
+            env_layout = env_database
+            env = self.wrap_env(torch.tensor(env_layout).unsqueeze(0))
+        else:
+            file_path = os.path.join(file_dir, env_database)
+            env_layout = self.load_text_map(file_path)
+            env = self.wrap_env_from_text(file_path)
+        return env, env_layout
+
+    def collect_data_from_env(self, env, validate=False):
+        print("++++++++++++++++++++++++++++++++++++ collecting data from the environment... ++++++++++++++++++++++++++++++++++++++++++++++")
+        self.del_env_data_file()  # clear the data_save_path
+        self.collect_data_trainer(env, validate=validate)  # collect data from the env for training the WM
+        if validate:
+            print("Data collected for validation.")
+        else:
+            print("Data collected for training.")
+
+    def train_world_model(self, cfg, old_params=None, fisher=None, env_layout=None, replay_data=None):
+        print("++++++++++++++++++++++++++++++++++++ training the world model... ++++++++++++++++++++++++++++++++++++++++++++++")
+        cur_old_params, cur_fisher = AttentionWM_training.train_api(cfg, old_params, fisher, env_layout, replay_data)
+        old_params, fisher = cur_old_params, cur_fisher
+        return old_params, fisher
+
+
+    def validate_world_model(self, cfg, old_params=None, fisher=None, env_layout=None):
+        print("++++++++++++++++++++++++++++++++++++ training the world model... ++++++++++++++++++++++++++++++++++++++++++++++")
+        cfg.attention_model.freeze_weight = True
+        validation_error, _ = AttentionWM_training.train_api(cfg, old_params, fisher, env_layout)
+        return validation_error
+
+    def generate_final_task(self, rows, cols, num_maps, save=True):
+        dict = generate_envs_dataset(
+            rows, cols, num_maps,
+            wall_p_range=(0.1, 0.5),
+            door_p_range=(0, 0),
+            key_p_range=(0, 0),
+            max_len=1e7,
+            random_gen_max=3e4
+        )
         file_names = []
-        for idx, key in enumerate(dict):
-            map = dict[key]
-            visualize_grid(map, save_flag=True, save_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task_set', idx=f'map_{idx}')  # 这里的路径要主动修改
-            map = torch.tensor(map).unsqueeze(0)
-            layout_string = generate_obj_map(map, self.cfg.training_generator.map_element)
+        if save:
+            for idx, key in enumerate(dict):
+                map = dict[key]
+            # 控制是否保存图片
+            
+                visualize_grid(
+                        map,
+                        save_flag=True,
+                        save_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task_set',
+                        idx=f'map_{idx}'
+                    )
+            map_tensor = torch.tensor(map).unsqueeze(0)
+            layout_string = generate_obj_map(map_tensor, self.cfg.training_generator.map_element)
             color_string = generate_color_map(layout_string)
             save_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{idx}.txt')
-            map = combine_maps(layout_string, color_string, save_path)
-            file_names.append(save_path)
-        return file_names
+            # 控制是否保存txt文件
+            if save:
+                combine_maps(layout_string, color_string, save_path)
+                file_names.append(save_path)
+        return file_names if save else dict
 
     def load_gen_func(self):
         model = load_gen(self.cfg)
@@ -131,12 +196,96 @@ class Support:
         ))
         return env
     
-    def collect_data_trainer(self, env):
+    def collect_data_trainer(self, env, validate=False):
+        if validate:
+            # just select small amount of data for validation
+            self.cfg.env.collect.episodes = 20
         if not os.path.exists(self.cfg.env.collect.data_save_path):
             data_collect_api(self.cfg, env)
     
+    def decision_model(self):
+        return random.choice([0, 1])
     # def save_data_to_buffer(self, data):        
     #     pass
+
+    def load_env_from_buffer(self, learning_buffer):
+        """
+        Load an environment from the learning buffer.
+        If the buffer is empty, generate a new environment.
+        """
+        env_map = learning_buffer.sample()
+        print("Loaded environment from learning buffer.")
+        env = self.wrap_env(torch.tensor(env_map['map']).unsqueeze(0))
+        # remove the entity from the learning buffer
+        self.remove_from_learning_buffer(env_map['map'], learning_buffer)
+        return env, env_map['map']
+    
+
+    def remove_from_learning_buffer(self, env_map, learning_buffer):
+        # remove the entity from the learning buffer
+        learning_buffer.remove(env_map)
+            
+            
+
+    def add_into_learning_buffer(self, env_map, wm_loss, samples, learning_buffer):
+        entity = {
+        "map": env_map,                      # 环境结构 array
+        "score": wm_loss[0]['avg_val_loss_wm'],                    # 可选：WM 评估指标
+        "data": samples
+        }
+        if entity['score'] > self.cfg.training_generator.learning_buffer_threshold:
+            # add the entity to the learning buffer
+            print("Added to learning buffer.")
+            learning_buffer.add(entity)
+        else:
+            print("Not added to learning buffer, wm_loss is too low.")
+
+
+
+    def env_editor(self, env, dynamic_object, flip_ratio=0.2, max_attempts=20000):
+        """
+        Mutate the environment by:
+        - Swapping movable elements (e.g., 8, 4, 5) to new valid positions
+        - Flipping wall/floor tiles (1 ↔ 2) inside inner area only
+        """
+        if flip_ratio <= 0.03:
+            env_original_layout = env.copy()
+            env = self.wrap_env(torch.tensor(env_original_layout).unsqueeze(0))
+            return env, env_original_layout
+        for _ in range(max_attempts):
+            env = env.copy()
+            h, w = env.shape
+
+            # Step 1: Flip 1s and 2s in the inner region
+            inner_coords = [(i, j) for i in range(1, h-1) for j in range(1, w-1) if env[i, j] in (1, 2)]
+            num_flips = int(len(inner_coords) * flip_ratio)
+            flip_coords = random.sample(inner_coords, num_flips)
+
+            for i, j in flip_coords:
+                env[i, j] = 2 if env[i, j] == 1 else 1
+
+            # Step 2: Move movable elements
+            movable_coords = [(i, j) for i in range(1, h-1) for j in range(1, w-1) if env[i, j] in dynamic_object]
+            empty_inner_coords = [(i, j) for i in range(1, h-1) for j in range(1, w-1)
+                                if env[i, j] not in dynamic_object and (i, j) not in flip_coords]
+
+            for (i, j) in movable_coords:
+                val = env[i, j]
+                env[i, j] = 1  # Clear old pos
+                new_i, new_j = random.choice(empty_inner_coords)
+                env[new_i, new_j] = val 
+                empty_inner_coords.remove((new_i, new_j))
+            
+
+            if is_reachable(env):
+                env_layout = env
+                env = self.wrap_env(torch.tensor(env).unsqueeze(0))
+                return env, env_layout
+        # raise ValueError(f"After {max_attempts} attempts, no reachable environment could be generated.")
+        return self.env_editor(env, dynamic_object, flip_ratio-0.02, max_attempts)
+
+
+        
 
     # def generate_final_task(self):
     #     # Generate the final task
@@ -149,6 +298,61 @@ class Support:
         # delete the env data file
         if os.path.exists(self.cfg.env.collect.data_save_path):
             os.remove(self.cfg.env.collect.data_save_path)
+
+    def generate_final_task_set(self, rows, cols, num_maps):
+        """
+        Generate a set of final tasks for wm performance evaluation.
+        """
+        print("++++++++++++++++++++++++++++++++++++ generating final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
+  
+        final_task_set = self.generate_final_task(rows, cols, num_maps, save=False)
+
+        print(f"Final task set generated with {num_maps} maps.")
+        return final_task_set
+    
+    # def assessing_performance_on_final_task(self, cfg, final_task_set, save_data=False, save_root=None):
+    #     """
+    #     Assess the performance of the trained model on the final task set.
+    #     Optionally save collected data for each environment.
+    #     """
+    #     print("++++++++++++++ Assessing performance on final task set... +++++++++++++++")
+    #     loss_set = []
+    #     data_paths = []
+
+    #     # 自动生成保存目录
+    #     save_root = os.path.join(cfg.env.collect.data_folder, "final_task_envs")
+    #     for i, final_task in enumerate(final_task_set):
+    #         env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
+    #         save_path = os.path.join(save_root, f"env_{i}.npz")
+    #         if not os.path.exists(save_path):
+    #             cfg.env.collect.data_save_path = save_path
+    #             self.collect_data_from_env(env, validate=True)
+            
+    #         cfg.attention_model.data_dir = save_path
+    #         loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
+    #         loss_set.append(loss[0]['avg_val_loss_wm'])
+    #     avg_loss = sum(loss_set) / len(loss_set)
+    #     print(f"Average loss on final task set: {avg_loss}")
+
+    #     return avg_loss
+
+    def assessing_performance_on_final_task(self, cfg, final_task_set, save_data=False, save_root=None):
+        """
+        Assess the performance of the trained model on the final task set.
+        """
+        print("++++++++++++++++++++++++++++++++++++ assessing performance on final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
+        # Load the trained model
+        loss_set = []
+        for final_task in final_task_set:
+            env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
+            self.collect_data_from_env(env, validate=True)
+            loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
+            loss_set.append(loss[0]['avg_val_loss_wm'])
+        avg_loss = sum(loss_set) / len(loss_set)
+        print(f"Average loss on final task set: {avg_loss}")
+        return avg_loss
+
+
 
 
 
