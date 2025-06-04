@@ -18,6 +18,7 @@ from PPO import preprocess_observation
 import time
 
 
+
 # set device to cpu or cuda
 device = torch.device('cpu')
 
@@ -115,6 +116,26 @@ def evaluate_policy(policy, env, episodes, obs_norm_values):
         total_reward += ep_reward
     return total_reward / episodes
 
+# add the function add objects into the inventory
+def add_object_to_inventory(delta_state, info):
+    """
+    Add an object to the agent's inventory in the environment.
+    It should depend on the changes between next state and current state.
+    the delta: whether the delta includes a minus key value 
+    assuming for key valus == 4
+    
+    Args:
+        for a keydoor environment
+        info['carraying_key'] (bool): Whether the agent is carrying a key.
+    """
+
+    if (delta_state == -4).any():
+        info['carrying_key'] = True
+
+    return info
+
+
+
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def training_agent_wm(cfg: DictConfig):
@@ -195,7 +216,6 @@ def run_training_wm(cfg):
     env = FullyObsWrapper(
         CustomMiniGridEnv(txt_file_path=env_path, custom_mission="Find the key and open the door.",
                         max_steps=4000, render_mode=None))
-    
     # 4. Initialize training
     i_episode = 0
     update_timestep = max_ep_len * 2  # update policy every n timesteps
@@ -229,12 +249,17 @@ def run_training_wm(cfg):
 
     # training loop
     while time_step <= max_training_timesteps:
+
         print(f'time step: {time_step}')
         state_init = env.reset()[0]['image']
+        if time_step == 0 and wandb.run is not None:
+            img = env.get_frame()
+            wandb.log({"final_tasks": wandb.Image(img)})
         state_0 = utils.ColRowCanl_to_CanlRowCol(state_init)
         goal_position_yx = find_position(state_0, (8, 1, 0)) # find the goal position
         current_ep_reward = 0
         for t in range(1, int(max_ep_len + 1)):
+            info = {}
             need_update = False
             # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
             if t==1:
@@ -246,7 +271,9 @@ def run_training_wm(cfg):
  
             state_masked = process_data(state_0.clone(), hparams_world_model.attention_mask_size)
             with torch.no_grad():
-                delta_masked, _ = model(state_masked, action)
+                delta_masked, _ = model(state_masked, action, info)
+            
+            info = add_object_to_inventory(delta_masked, info)
             
             state_pre_masked = state_masked + delta_masked
             if visualize_flag:

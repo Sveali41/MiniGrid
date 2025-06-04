@@ -10,6 +10,7 @@ from omegaconf import DictConfig, OmegaConf
 from minigrid.wrappers import FullyObsWrapper
 from minigrid_custom_env import *
 from common import utils
+from minigrid_custom_env import CustomEnvFromFile
 
 # Set device to CPU or CUDA
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

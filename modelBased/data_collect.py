@@ -9,6 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 import time
 from tqdm import tqdm
 import torch
+import wandb
 
 
 # set device to cpu or cuda
@@ -128,12 +129,13 @@ def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N
     return obs_aug[idx], obsn_aug[idx], act_aug[idx], rew_aug[idx], done_aug[idx]
 
 
-def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
+def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None, save_img=False):
     obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
-    img = env.render(mode='rgb_array')
-
+    if save_img and wandb.run is not None:
+        img = env.get_frame()
+        wandb.log({"Mini-tasks": wandb.Image(img)})
     # Visit count for RMax or exploration tracking
     visit_count = {}
 
@@ -254,9 +256,9 @@ def data_collect(cfg: DictConfig):
 
 
 
-def data_collect_api(cfg: DictConfig, env):
+def data_collect_api(cfg: DictConfig, env, save_img=False):
     hparam = cfg.env
-    obs, obs_next, act,rew, done, info = run_env(env, hparam)
+    obs, obs_next, act,rew, done, info = run_env(env, hparam, save_img=save_img)
         # 指定要过采样的动作：pickup 和 toggle
     # actions_to_oversample = [env.unwrapped.actions.toggle]
     # obs, obs_next, act, rew, done = augment_interactions(

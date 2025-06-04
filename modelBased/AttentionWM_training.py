@@ -13,8 +13,9 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 import wandb
 import numpy as np
+from modelBased.common.utils import TRAINER_PATH
 
-@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
+@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_test")
 def train(cfg: DictConfig):
     run(cfg)
 

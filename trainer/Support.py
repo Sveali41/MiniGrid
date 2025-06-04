@@ -124,7 +124,7 @@ class Support:
         return validation_error
 
     def generate_final_task(self, rows, cols, num_maps, save=True):
-        dict = generate_envs_dataset(
+        final_task_dict = generate_envs_dataset(
             rows, cols, num_maps,
             wall_p_range=(0.1, 0.5),
             door_p_range=(0, 0),
@@ -134,25 +134,23 @@ class Support:
         )
         file_names = []
         if save:
-            for idx, key in enumerate(dict):
-                map = dict[key]
+            for idx, key in enumerate(final_task_dict):
+                map = final_task_dict[key]
             # 控制是否保存图片
-            
-                visualize_grid(
-                        map,
-                        save_flag=True,
-                        save_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task_set',
-                        idx=f'map_{idx}'
-                    )
-            map_tensor = torch.tensor(map).unsqueeze(0)
-            layout_string = generate_obj_map(map_tensor, self.cfg.training_generator.map_element)
-            color_string = generate_color_map(layout_string)
-            save_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{idx}.txt')
-            # 控制是否保存txt文件
-            if save:
+                # visualize_grid(
+                #         map,
+                #         save_flag=True,
+                #         save_path='/home/siyao/project/rlPractice/MiniGrid/trainer/level/final_task_set',
+                #         idx=f'map_{idx}'
+                #     )
+                map_tensor = torch.tensor(map).unsqueeze(0)
+                layout_string = generate_obj_map(map_tensor, self.cfg.training_generator.map_element)
+                color_string = generate_color_map(layout_string)
+                save_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{idx}.txt')
                 combine_maps(layout_string, color_string, save_path)
                 file_names.append(save_path)
-        return file_names if save else dict
+
+        return final_task_dict
 
     def load_gen_func(self):
         model = load_gen(self.cfg)
@@ -197,11 +195,13 @@ class Support:
         return env
     
     def collect_data_trainer(self, env, validate=False):
+        save_img = True
         if validate:
             # just select small amount of data for validation
             self.cfg.env.collect.episodes = 20
+            save_img = False
         if not os.path.exists(self.cfg.env.collect.data_save_path):
-            data_collect_api(self.cfg, env)
+            data_collect_api(self.cfg, env, save_img)
     
     def decision_model(self):
         return random.choice([0, 1])
@@ -305,7 +305,7 @@ class Support:
         """
         print("++++++++++++++++++++++++++++++++++++ generating final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
   
-        final_task_set = self.generate_final_task(rows, cols, num_maps, save=False)
+        final_task_set = self.generate_final_task(rows, cols, num_maps, save=True)
 
         print(f"Final task set generated with {num_maps} maps.")
         return final_task_set
@@ -352,6 +352,18 @@ class Support:
         print(f"Average loss on final task set: {avg_loss}")
         return avg_loss
 
+    def train_policy_on_final_task(self, cfg, final_task_set):
+        """
+        Train the policy on the final task set.
+        """
+        print("++++++++++++++++++++++++++++++++++++ training policy on final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
+        # Load the trained model
+        for final_task in final_task_set:
+            env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
+            cfg.PPO.wandb_run_name = f"final_task_{final_task}"
+            cfg.PPO.env_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{final_task}.txt')
+            PPO_world_training.run_training_wm(cfg)
+       
 
 
 

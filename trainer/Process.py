@@ -43,7 +43,7 @@ def run(cfg: DictConfig):
         wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
         wandb.init(project='World_Model_Curriculum_Learning', entity='18920011663-king-s-college-london', reinit=True)
     old_params, fisher = None, None
-    fisher_buffer = FisherReplayBuffer(max_size=100000)
+    fisher_buffer = FisherReplayBuffer(max_size=150000)
     learning_steps = cfg.training_generator.learning_steps
     support = Support.Support(cfg)
     # load the map from MAP sample
@@ -136,12 +136,13 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0:
-            rows = 20
-            cols = 20
+            rows = 40
+            cols = 40
             num_maps = 10
             final_task_set = support.generate_final_task_set(rows, cols, num_maps)
             # === Step 2: Assessing performance on final task set ===
             avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set)
+            support.train_policy_on_final_task(cfg, final_task_set)
             # train the policy on the final task set
             if use_wandb:
                 wandb.log({"final_task_performance": float(avg_loss)}, step=step)

@@ -18,7 +18,7 @@ training_generator:
   dynamic_objects: [8]
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
-  use_wandb: False
+  use_wandb: True
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500.pkl
   learning_buffer_size: 5000 # 5000
   learning_buffer_threshold: 0.0001
@@ -46,7 +46,7 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 30   # 25
+  n_epochs: 20   # 25
   lr: 1e-3 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
@@ -87,7 +87,7 @@ PPO:
   # PPO training
   env_type: empty # empty, with obj
   has_continuous_action_space: False
-  max_ep_len: 1000  # max timesteps in one episode 8000
+  max_ep_len: 2000  # max timesteps in one episode 8000
   action_std: 0.1  # set same std for action distribution which was used while saving
   i_episode: 0
   K_epochs: 20  # update policy for K epochs
@@ -97,7 +97,7 @@ PPO:
   lr_critic: 0.001  # learning rate for critic
   checkpoint_path_wm: ${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt
   time_step: 0
-  max_training_timesteps: 1e4 #1e6
+  max_training_timesteps: 2e6 #1e6
   # max_training_timesteps: 3e5
   action_std_decay_freq: 3000
   action_std_decay_rate: 0.95
@@ -112,7 +112,7 @@ PPO:
   save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
   save_csv: False
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
-  use_wandb: False
+  use_wandb: True
   wandb_run_name: None
 
     # evaluation
