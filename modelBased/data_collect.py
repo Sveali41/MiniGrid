@@ -132,6 +132,7 @@ def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
     obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
+    img = env.render(mode='rgb_array')
 
     # Visit count for RMax or exploration tracking
     visit_count = {}

@@ -9,7 +9,7 @@ training_generator:
   # model
   z_shape: 128
   generator: "deconv"
-  n_epochs: 200
+  n_epochs: 130
   lr: 1e-4
   wd : 0.0
   pth_path: ${oc.env:GENERATOR_PATH}/models/gan_model_classifer.ckpt #${oc.env:GENERATOR_PATH}/models/gan_model_classifier.ckpt
@@ -18,7 +18,7 @@ training_generator:
   dynamic_objects: [8]
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
-  use_wandb: True
+  use_wandb: False
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500.pkl
   learning_buffer_size: 5000 # 5000
   learning_buffer_threshold: 0.0001

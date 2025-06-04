@@ -117,6 +117,6 @@ def test_2(cfg: DictConfig):
 
     
 if __name__ == "__main__":
-    # collect_data()
-    test_1()
+    collect_data()
+    # test_1()
     # test_2()
