@@ -135,7 +135,7 @@ def run(cfg: DictConfig):
             support.add_into_learning_buffer(env_layout, wm_loss, samples, learning_buffer)
             
 
-        if step % 10 == 0 and step != 0:
+        if step % 5 == 0 and step != 0:
             rows = 30
             cols = 30
             num_maps = 5
@@ -145,7 +145,8 @@ def run(cfg: DictConfig):
             # train the policy on the final task set
             if use_wandb:
                 wandb.log({"final_task_performance": float(avg_loss)}, step=step)
-            support.train_policy_on_final_task(cfg, final_task_set)
+            if step % 20 == 0 and step != 0:
+                support.train_policy_on_final_task(cfg, final_task_set)
 
     if use_wandb:
         wandb.finish()
