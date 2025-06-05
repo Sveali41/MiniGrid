@@ -136,8 +136,8 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0:
-            rows = 40
-            cols = 40
+            rows = 30
+            cols = 30
             num_maps = 10
             final_task_set = support.generate_final_task_set(rows, cols, num_maps)
             # === Step 2: Assessing performance on final task set ===
