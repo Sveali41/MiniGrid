@@ -135,10 +135,10 @@ def run(cfg: DictConfig):
             support.add_into_learning_buffer(env_layout, wm_loss, samples, learning_buffer)
             
 
-        if step % 5 == 0:
+        if step % 10 == 0 and step != 0:
             rows = 30
             cols = 30
-            num_maps = 10
+            num_maps = 5
             final_task_set = support.generate_final_task_set(rows, cols, num_maps)
             # === Step 2: Assessing performance on final task set ===
             avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set)
