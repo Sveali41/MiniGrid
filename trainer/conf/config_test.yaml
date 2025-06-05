@@ -18,7 +18,7 @@ training_generator:
   dynamic_objects: [8]
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
-  use_wandb: False
+  use_wandb: True
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500.pkl
   learning_buffer_size: 5000 # 5000
   learning_buffer_threshold: 0.0001
@@ -112,7 +112,7 @@ PPO:
   save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
   save_csv: False
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
-  use_wandb: False
+  use_wandb: True
   wandb_run_name: None
 
     # evaluation
