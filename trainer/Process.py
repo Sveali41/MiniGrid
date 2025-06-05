@@ -142,10 +142,11 @@ def run(cfg: DictConfig):
             final_task_set = support.generate_final_task_set(rows, cols, num_maps)
             # === Step 2: Assessing performance on final task set ===
             avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set)
-            support.train_policy_on_final_task(cfg, final_task_set)
             # train the policy on the final task set
             if use_wandb:
                 wandb.log({"final_task_performance": float(avg_loss)}, step=step)
+            support.train_policy_on_final_task(cfg, final_task_set)
+
     if use_wandb:
         wandb.finish()
     
