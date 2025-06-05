@@ -14,7 +14,7 @@ from . import AttentionWM_support
 from . import Embedding_support
 from . import MLP_support#
 import wandb
-from PPO import preprocess_observation 
+from .PPO import preprocess_observation 
 import time
 
 
