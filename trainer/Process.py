@@ -136,16 +136,16 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0 and step != 0:
-            rows = 10
-            cols = 10
-            num_maps = 3
+            rows = 30
+            cols = 30
+            num_maps = 5
             final_task_set = support.generate_final_task_set(rows, cols, num_maps)
             # === Step 2: Assessing performance on final task set ===
             avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set, wandb_run=main_run)
             # train the policy on the final task set
             if use_wandb:
                 main_run.log({"final_task_performance": float(avg_loss)}, step=step)
-            if step % 5 == 0 and step != 0:
+            if step % 20 == 0 and step != 0:
                 support.train_policy_on_final_task(cfg, final_task_set)
                 main_run = wandb.init(
                 project='World_Model_Curriculum_Learning', 
