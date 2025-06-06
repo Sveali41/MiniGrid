@@ -129,13 +129,13 @@ def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N
     return obs_aug[idx], obsn_aug[idx], act_aug[idx], rew_aug[idx], done_aug[idx]
 
 
-def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None, save_img=False):
+def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None, save_img=False):
     obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
-    if save_img and wandb.run is not None:
+    if save_img and wandb_run is not None:
         img = env.get_frame()
-        wandb.log({"Mini-tasks": wandb.Image(img)})
+        wandb_run.log({"Mini-tasks": wandb.Image(img)})
     # Visit count for RMax or exploration tracking
     visit_count = {}
 
@@ -251,14 +251,14 @@ def data_collect(cfg: DictConfig):
     env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path=hparam.env_path, 
                                         custom_mission="Find the key and open the door.",
                                         max_steps=5000, render_mode=mode))
-    obs, obs_next, act,rew, done = run_env(env, hparam)
+    obs, obs_next, act,rew, done = run_env(env, hparam, wandb_run=None, save_img=False)
     save_experiments(cfg.env,obs,obs_next, act, rew, done)
 
 
 
-def data_collect_api(cfg: DictConfig, env, save_img=False):
+def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False):
     hparam = cfg.env
-    obs, obs_next, act,rew, done, info = run_env(env, hparam, save_img=save_img)
+    obs, obs_next, act,rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
         # 指定要过采样的动作：pickup 和 toggle
     # actions_to_oversample = [env.unwrapped.actions.toggle]
     # obs, obs_next, act, rew, done = augment_interactions(

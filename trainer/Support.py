@@ -101,10 +101,10 @@ class Support:
             env = self.wrap_env_from_text(file_path)
         return env, env_layout
 
-    def collect_data_from_env(self, env, validate=False):
+    def collect_data_from_env(self, env, wandb_run, validate=False):
         print("++++++++++++++++++++++++++++++++++++ collecting data from the environment... ++++++++++++++++++++++++++++++++++++++++++++++")
         self.del_env_data_file()  # clear the data_save_path
-        self.collect_data_trainer(env, validate=validate)  # collect data from the env for training the WM
+        self.collect_data_trainer(env, wandb_run, validate=validate)  # collect data from the env for training the WM
         if validate:
             print("Data collected for validation.")
         else:
@@ -194,14 +194,14 @@ class Support:
         ))
         return env
     
-    def collect_data_trainer(self, env, validate=False):
+    def collect_data_trainer(self, env, wandb_run, validate=False):
         save_img = True
         if validate:
             # just select small amount of data for validation
             self.cfg.env.collect.episodes = 20
             save_img = False
         if not os.path.exists(self.cfg.env.collect.data_save_path):
-            data_collect_api(self.cfg, env, save_img)
+            data_collect_api(self.cfg, env, wandb_run, save_img)
     
     def decision_model(self):
         return random.choice([0, 1])
@@ -336,7 +336,7 @@ class Support:
 
     #     return avg_loss
 
-    def assessing_performance_on_final_task(self, cfg, final_task_set, save_data=False, save_root=None):
+    def assessing_performance_on_final_task(self, cfg, final_task_set, wandb_run, save_data=False, save_root=None):
         """
         Assess the performance of the trained model on the final task set.
         """
@@ -345,7 +345,7 @@ class Support:
         loss_set = []
         for final_task in final_task_set:
             env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
-            self.collect_data_from_env(env, validate=True)
+            self.collect_data_from_env(env, wandb_run, validate=True)
             loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
             loss_set.append(loss[0]['avg_val_loss_wm'])
         avg_loss = sum(loss_set) / len(loss_set)
@@ -359,7 +359,6 @@ class Support:
         print("++++++++++++++++++++++++++++++++++++ training policy on final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
         # Load the trained model
         for final_task in final_task_set:
-            env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
             cfg.PPO.wandb_run_name = f"final_task_{final_task}"
             cfg.PPO.env_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{final_task}.txt')
             PPO_world_training.run_training_wm(cfg)

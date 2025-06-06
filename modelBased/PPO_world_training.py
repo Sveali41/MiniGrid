@@ -206,7 +206,7 @@ def run_training_wm(cfg):
 
     if use_wandb:
         wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
-        wandb.init(project='Trainer_policy', entity='18920011663-king-s-college-london',name=wandb_run_name, reinit=True)
+        sub_run = wandb.init(project='Trainer_policy', entity='18920011663-king-s-college-london',name=wandb_run_name, reinit=True)
 
     # training_agent()
 
@@ -252,9 +252,9 @@ def run_training_wm(cfg):
 
         print(f'time step: {time_step}')
         state_init = env.reset()[0]['image']
-        if time_step == 0 and wandb.run is not None:
+        if time_step == 0 and sub_run is not None:
             img = env.get_frame()
-            wandb.log({"final_tasks": wandb.Image(img)})
+            sub_run.log({"final_tasks": wandb.Image(img)})
         state_0 = utils.ColRowCanl_to_CanlRowCol(state_init)
         goal_position_yx = find_position(state_0, (8, 1, 0)) # find the goal position
         current_ep_reward = 0
@@ -322,7 +322,7 @@ def run_training_wm(cfg):
                 # print average reward till last episode
                 print_avg_reward = print_running_reward / print_running_episodes
                 if use_wandb:
-                    wandb.log({"average_reward": print_avg_reward})
+                    sub_run.log({"average_reward": print_avg_reward})
 
                 print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step,
                                                                                         print_avg_reward))
@@ -355,7 +355,7 @@ def run_training_wm(cfg):
                 print(f"[Regret @ timestep {time_step}] Real: {R_real:.2f}, WM: {R_wm:.2f}, Regret: {regret:.2f}, Norm: {norm_regret:.2%}")
 
                 if use_wandb:
-                    wandb.log({
+                    sub_run.log({
                         "regret": regret,
                         "normalized_regret": norm_regret,
                         "real_policy_reward_in_eva": R_real,
@@ -383,7 +383,7 @@ def run_training_wm(cfg):
         i_episode += 1
     env.close()
     if use_wandb:
-        wandb.finish()
+        sub_run.finish()
     if compute_regret: 
         return final_norm_regret
 
@@ -428,7 +428,7 @@ def run_training_real_env(cfg):
 
     if use_wandb:
         wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
-        wandb.init(project='final_task_policy', entity='18920011663-king-s-college-london', name=wandb_run_name, reinit=True)
+        subrun = wandb.init(project='final_task_policy', entity='18920011663-king-s-college-london', name=wandb_run_name, reinit=True)
 
 
     # state space dimension
@@ -519,7 +519,7 @@ def run_training_real_env(cfg):
 
     env.close()
     if use_wandb:
-        wandb.finish()
+        subrun.finish()
 
 
 def run_policy_evaluation(cfg: DictConfig):
