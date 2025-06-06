@@ -30,7 +30,7 @@ env:
   # env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
   visualize: False # to choose whether your want to see the env during interaction or not
   collect:
-    episodes: 500  # 500 number of episodes to start 
+    episodes: 50  # 500 number of episodes to start 
     data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
 
@@ -46,7 +46,7 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 20   # 25
+  n_epochs: 2   # 25
   lr: 1e-3 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
@@ -97,7 +97,7 @@ PPO:
   lr_critic: 0.001  # learning rate for critic
   checkpoint_path_wm: ${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt
   time_step: 0
-  max_training_timesteps: 1.5e6 #1e6
+  max_training_timesteps: 1.5e2 #1e6
   # max_training_timesteps: 3e5
   action_std_decay_freq: 3000
   action_std_decay_rate: 0.95
