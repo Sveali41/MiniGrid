@@ -418,6 +418,7 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
     print(f"Dones shape: {done_np.shape}")
     print(f"Number of episodes started: {episodes}")
     print(f"Unique state-action pairs visited: {len(visit_count)}")
+    env.close()
 
     return obs_np, obs_next_np, act_np, rew_np, done_np, info_np
 
