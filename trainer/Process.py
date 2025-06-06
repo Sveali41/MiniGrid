@@ -145,7 +145,7 @@ def run(cfg: DictConfig):
             # train the policy on the final task set
             if use_wandb:
                 main_run.log({"final_task_performance": float(avg_loss)}, step=step)
-            if step % 5 == 0 and step != 0:
+            if step % 20 == 0 and step != 0:
                 support.train_policy_on_final_task(cfg, final_task_set)
                 main_run = wandb.init(
                 project='World_Model_Curriculum_Learning', 
