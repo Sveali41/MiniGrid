@@ -173,7 +173,7 @@ class WMRLDataModule(pl.LightningDataModule):
             drop_last=True,
             num_workers=self.hparams.n_cpu,
             pin_memory=True,
-            persistent_workers=False
+            persistent_workers=True
         )
 
     def val_dataloader(self):
@@ -184,5 +184,5 @@ class WMRLDataModule(pl.LightningDataModule):
             drop_last=True,
             num_workers=self.hparams.n_cpu,
             pin_memory=True,
-            persistent_workers=False
+            persistent_workers=True
         )
