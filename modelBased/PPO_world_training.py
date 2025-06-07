@@ -490,7 +490,7 @@ def run_training_real_env(cfg):
                 # print average reward till last episode
                 print_avg_reward = print_running_reward / print_running_episodes
                 if use_wandb:
-                    wandb.log({"average_reward": print_avg_reward})
+                    subrun.log({"average_reward": print_avg_reward})
 
                 print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step,
                                                                                         print_avg_reward))
