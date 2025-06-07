@@ -5,7 +5,7 @@ training_generator:
   map_height: 6
   data_dir: ${oc.env:GENERATOR_PATH}/data/dataset/generated_data_final.json
   batch_size: 1
-  n_cpu: 8
+  n_cpu: 0
   # model
   z_shape: 128
   generator: "deconv"
@@ -42,7 +42,7 @@ attention_model:
   grid_shape: [3, 0, 0]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
   attention_mask_size: 5
   batch_size: 128  # test 64/128/256
-  n_cpu: 8
+  n_cpu: 0
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
