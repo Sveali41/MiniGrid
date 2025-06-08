@@ -59,16 +59,19 @@ def run(cfg: DictConfig):
             replay_data = fisher_buffer.export_dict()
         else:
             replay_data = None
+
+        if step % 10 == 0:
+            save_img = True
+        else:
+            save_img = False
             
         # === Step 1: 决定 env 来源 ===
         if step == 0 or len(learning_buffer) == 0:
+
             env, env_layout = support.generate_env_from_generator(
                 cfg, env_database[step], file_dir
             )
-            if step % 10 == 0:
-                save_img = True
-            else:
-                save_img = False
+
             cfg.attention_model.freeze_weight = False
             support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run, save_img = save_img) 
             cur_old_params, cur_fisher = support.train_world_model(cfg, old_params, fisher, env_layout=None, replay_data=replay_data)
@@ -84,7 +87,7 @@ def run(cfg: DictConfig):
             env_edited, env_layout = support.env_editor(env_layout, cfg.training_generator.dynamic_objects)
             print("+++++++++++ Checking if add to buffer +++++++++++")
             cfg.attention_model.freeze_weight = True
-            support.collect_data_from_env(env_edited, wandb_run=main_run, validate=cfg.attention_model.freeze_weight)
+            support.collect_data_from_env(env_edited, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img)
             task_npz = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples = {
                 'obs': task_npz['a'],
@@ -100,7 +103,7 @@ def run(cfg: DictConfig):
                             cfg, env_database[step], file_dir
                         )
             cfg.attention_model.freeze_weight = True
-            support.collect_data_from_env(env, wandb_run=main_run, validate=cfg.attention_model.freeze_weight)
+            support.collect_data_from_env(env, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img)
             task_npz = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples = {
                 'obs': task_npz['a'],
@@ -114,7 +117,7 @@ def run(cfg: DictConfig):
             cfg.attention_model.freeze_weight = False
             # load the env from the learning buffer
             env, env_string = support.load_env_from_buffer(learning_buffer)
-            support.collect_data_from_env(env, wandb_run=main_run, validate=cfg.attention_model.freeze_weight)
+            support.collect_data_from_env(env, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img)
             cur_old_params, cur_fisher = support.train_world_model(cfg, old_params, fisher, env_layout=None, replay_data=replay_data)
             task_npz_train = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples_train = {
@@ -128,7 +131,7 @@ def run(cfg: DictConfig):
             env_edited, env_layout = support.env_editor(env_string, cfg.training_generator.dynamic_objects)
             print("+++++++++++ Checking if add to buffer +++++++++++")
             cfg.attention_model.freeze_weight = True
-            support.collect_data_from_env(env_edited, wandb_run=main_run, validate=cfg.attention_model.freeze_weight)
+            support.collect_data_from_env(env_edited, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img)
             task_npz = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples = {
                 'obs': task_npz['a'],
