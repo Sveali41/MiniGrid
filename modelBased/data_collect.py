@@ -18,220 +18,11 @@ from omegaconf import DictConfig
 import numpy as np
 from multiprocessing import Pool, get_context
 
-
-def run_env_single(env, cfg: DictConfig, seed, policy=None, rmax_exploration=None, save_img=False):
-    """
-    Run a specified number of episodes in one environment instance,
-    collect (obs, obs_next, act, rew, done, info) tuples, and return them.
-    
-    Args:
-        env:            A Gym‐style environment with .reset(), .step(), etc.
-        cfg:            A DictConfig containing `cfg.collect.episodes` and other flags.
-        seed (int):     Random seed for this worker to ensure each process
-                        collects different data.
-        save_img (bool): If True, you could log the first frame to W&B (not shown here).
-
-    Returns:
-        obs_np:      numpy array of all observations (shape = [total_steps, ...])
-        obs_next_np: numpy array of next observations
-        act_np:      numpy array of actions taken
-        rew_np:      numpy array of rewards received
-        done_np:     numpy array of done flags (True/False)
-        info_np:     numpy array of info dictionaries (or structured arrays)
-    """
-    import random, torch
-
-    # 1) Set seeds for reproducibility in this process
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    # 2) Reset environment and prepare containers
-    obs_list, obs_next_list = [], []
-    act_list, rew_list, done_list, info_list = [], [], [], []
-    episodes_collected = 0
-
-    # If you want to log a first frame to W&B, you could do it here:
-    # if save_img and wandb_run is not None:
-    #     img = env.get_frame()
-    #     wandb_run.log({"Example Frame": wandb.Image(img)})
-
-    # 3) Configure env’s random seed if supported
-    try:
-        env.seed(seed)
-    except AttributeError:
-        pass  # Some wrappers don’t support .seed(); ignore if not available
-
-    # 4) Reset environment to start collecting
-    obs = env.reset()[0]  # assuming env.reset() returns a tuple where [0] has the image
-
-    # 5) Track unique state‐action visits (optional)
-    visit_count = {}
-
-    # Define meaningful actions (forward, turn_left, turn_right)
-    meaningful_actions = [env.unwrapped.actions.forward, env.unwrapped.actions.left, env.unwrapped.actions.right, env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
-
-
-    # 6) Decide how many episodes this worker should run
-    target_episodes = cfg.collect.episodes
-
-    while episodes_collected < target_episodes:
-        # Record the current raw observation (image)
-        obs_list.append([obs['image']])
-        # Select an action
-        if policy is None:
-            act = np.random.choice(meaningful_actions, p=[0.3, 0.15, 0.15, 0.2, 0.2])  # Weighted random sampling
-        else:
-            state_norm = normalize_obs(obs['image']).to(device)
-            act = policy.select_action(state_norm)
-
-        # Step the environment
-        obs_next, reward, done, trunc, info = env.step(act)
-
-        # Optionally add custom info fields, for example whether agent is carrying a key
-        if hasattr(env.unwrapped, "carrying") and env.unwrapped.carrying:
-            info["carrying_key"] = (env.unwrapped.carrying.type == 'key')
-        else:
-            info["carrying_key"] = False
-
-        # Append to lists
-        act_list.append([act])
-        obs_next_list.append([obs_next['image']])
-        rew_list.append([reward])
-        done_list.append([done])
-        info_list.append([info])
-
-        # Update visit count for (state, action) pairs (optional)
-        key = (tuple(obs['image'].flatten()), act)
-        visit_count[key] = visit_count.get(key, 0) + 1
-
-        # If visualization is enabled, render frames
-        if getattr(cfg.collect, "visualize", False):
-            env.render()
-            time.sleep(0.1)
-
-        # Check if episode ended
-        if done or trunc:
-            episodes_collected += 1
-            obs = env.reset()[0]
-            if episodes_collected % 100 == 0:
-                print(f"[Worker {seed}] Completed {episodes_collected} episodes")
-        else:
-            obs = obs_next
-
-    # Convert lists to numpy arrays
-    obs_np      = np.concatenate(obs_list,      axis=0)
-    obs_next_np = np.concatenate(obs_next_list, axis=0)
-    act_np      = np.concatenate(act_list,      axis=0)
-    rew_np      = np.concatenate(rew_list,      axis=0)
-    done_np     = np.concatenate(done_list,     axis=0)
-    info_np     = np.concatenate(info_list,     axis=0)
-
-    # Print summary of this worker’s collection
-    print(f"[Worker {seed}] Final counts: obs {obs_np.shape}, actions {act_np.shape}, rewards {rew_np.shape}, dones {done_np.shape}")
-    print(f"[Worker {seed}] Unique state-action pairs visited: {len(visit_count)}")
-
-    return obs_np, obs_next_np, act_np, rew_np, done_np, info_np
-
 def visualize_env(env, cfg: DictConfig, save_img=False):
     env.reset()[0]
     img = env.get_frame()
     return img 
 
-# -----------------------------------
-# Entry point for each worker process
-# -----------------------------------
-def worker_entry(args):
-    """
-    Each worker:
-      1. Receives (worker_id, cfg) as arguments.
-      2. Builds its own environment instance.
-      3. Calls run_env_single to collect episodes.
-      4. Returns the collected numpy arrays.
-
-    Args:
-        args: Tuple (worker_id, cfg)
-    Returns:
-        Same tuple of numpy arrays as run_env_single.
-    """
-    worker_id, cfg, env, save_img= args
-    visualize_env(env, cfg, save_img)
-    return run_env_single(env, cfg, worker_id, policy=None, rmax_exploration=None, save_img=False)
-
-
-def run_env_multiprocess(env, hparam, wandb_run, save_img):
-    """
-    Parallel data collection using multiple processes.
-
-    Steps:
-      1. Read cfg.collect.episodes (total number of episodes to collect)
-         and cfg.collect.num_workers (number of parallel worker processes).
-      2. Split total episodes among workers, so each worker runs a subset.
-      3. Spawn a Pool of workers, each calling worker_entry((worker_id, cfg_copy)).
-      4. Collect results (numpy arrays) from all workers, concatenate them,
-         and finally save into one .npz file.
-    """
-    # 1) Extract configuration parameters
-    total_episodes = hparam.collect.episodes       # e.g. 1000
-    num_workers    = hparam.collect.num_workers    # e.g. 4
-
-    # 2) Divide episodes as evenly as possible
-    base  = total_episodes // num_workers
-    extra = total_episodes % num_workers
-    episodes_per_worker = [base + (1 if i < extra else 0) for i in range(num_workers)]
-    print(f"Spawning {num_workers} workers, each will collect these episode counts: {episodes_per_worker}")
-
-    # 3) Create a separate cfg copy for each worker, adjusting only .collect.episodes
-    import copy
-    worker_args = []
-    for i in range(num_workers):
-        single_cfg = copy.deepcopy(hparam)
-        single_cfg.collect.episodes = episodes_per_worker[i]
-        worker_args.append((i, single_cfg))  # (worker_id, config)
-
-    # 4) Use multiprocessing Pool with "spawn" context for better compatibility
-    ctx = get_context("spawn")
-    with Pool(processes=num_workers, context=ctx) as pool:
-        # map blocks until all workers finish, and gathers their return values
-        results = pool.map(worker_entry, worker_args)
-
-    # 5) Merge data from all workers
-    all_obs, all_obs_next = [], []
-    all_act, all_rew, all_done, all_info = [], [], [], []
-
-    for (obs_np, obs_next_np, act_np, rew_np, done_np, info_np) in results:
-        all_obs.append(obs_np)
-        all_obs_next.append(obs_next_np)
-        all_act.append(act_np)
-        all_rew.append(rew_np)
-        all_done.append(done_np)
-        all_info.append(info_np)
-
-    obs_all      = np.concatenate(all_obs,      axis=0)
-    obs_next_all = np.concatenate(all_obs_next, axis=0)
-    act_all      = np.concatenate(all_act,      axis=0)
-    rew_all      = np.concatenate(all_rew,      axis=0)
-    done_all     = np.concatenate(all_done,     axis=0)
-    info_all     = np.concatenate(all_info,     axis=0)
-
-    # Log statistics
-    print(f"Observation shape: {obs_np.shape}")
-    print(f"Next observation shape: {obs_next_np.shape}")
-    print(f"Actions shape: {act_np.shape}")
-    print(f"Rewards shape: {rew_np.shape}")
-    print(f"Dones shape: {done_np.shape}")
-
-    return obs_all, obs_next_all, act_all, rew_all, done_all, info_all
-
-# set device to cpu or cuda
-device = torch.device('cpu')
-
-if torch.cuda.is_available():
-    device = torch.device('cuda:0')
-    torch.cuda.empty_cache()
-    print("Device set to : " + str(torch.cuda.get_device_name(device)))
-else:
-    print("Device set to : cpu")
 
 # def run_env(env, cfg: DictConfig, policy=None, rmax_exploration=None):
 #     obs_list, obs_next_list, act_list, rew_list, done_list = [], [], [], [], []
@@ -285,6 +76,86 @@ else:
 
 #     return obs_np, obs_next_np, act_np, rew_np, done_np
 
+def run_env_vectorized(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None, save_img=False):
+    import copy
+    from gym.vector import AsyncVectorEnv
+    """
+    Vectorized data collection with AsyncVectorEnv, handling variable episode lengths.
+    Collects cfg.collect.episodes full episodes per parallel env.
+    """
+        # set device to cpu or cuda
+    device = torch.device('cpu')
+    if save_img and wandb_run is not None:
+        _ = env.reset()[0]
+        img = env.get_frame()
+        wandb_run.log({"Mini-tasks": wandb.Image(img)})
+
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+
+    num_envs = cfg.collect.num_workers
+
+        # Build factory that deep-copies the single env into independent instances
+    def make_env():
+        base = copy.deepcopy(env)
+        # convert dict observation to image-only Box space
+        return ImgObsWrapper(base)
+
+    envs = AsyncVectorEnv([make_env for _ in range(num_envs)])
+    # Reset all envs and prepare trackers
+    obs_batch = envs.reset()  # shape: (num_envs, H, W, C)
+    episodes_done = [0] * num_envs
+    obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
+    meaningful_actions = [env.unwrapped.actions.forward, env.unwrapped.actions.left, env.unwrapped.actions.right, env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
+
+    # Continue until each env has completed desired episodes
+    while any(ed < cfg.collect.episodes for ed in episodes_done):
+        # Sample actions
+        if policy is None:
+            acts = np.random.choice(
+                meaningful_actions,
+                size=num_envs,
+                p=[0.3,0.15,0.15,0.2,0.2]
+            )
+        else:
+            # Batch forward
+            state_norm = normalize_obs(obs_batch['image']).to(device)
+            act = policy.select_action(state_norm)
+
+        # Step all envs
+        next_obs, rewards, dones, _, infos = envs.step(acts)
+
+        # Optionally add custom info fields, for example whether agent is carrying a key
+        if hasattr(env.unwrapped, "carrying") and env.unwrapped.carrying:
+            infos["carrying_key"] = (env.unwrapped.carrying.type == 'key')
+        else:
+            infos["carrying_key"] = False
+
+                # Record transitions for envs still collecting
+        for i in range(num_envs):
+            if episodes_done[i] < cfg.collect.episodes:
+                obs_list.append(obs_batch[i])
+                obs_next_list.append(next_obs[i])
+                act_list.append([acts[i]])
+                rew_list.append([rewards[i]])
+                done_list.append([dones[i]])
+                info_list.append(infos[i])
+                if dones[i]:
+                    episodes_done[i] += 1
+
+        obs_batch = next_obs
+
+    # Convert lists to arrays
+    obs_buf      = np.stack(obs_list,      axis=0)
+    obs_next_buf = np.stack(obs_next_list, axis=0)
+    act_buf      = np.array(act_list,      dtype=np.int32)
+    rew_buf      = np.array(rew_list,      dtype=np.float32)
+    done_buf     = np.array(done_list,     dtype=bool)
+    # infos may be a list of dicts; keep as list or convert to object array
+    info_buf     = np.array(info_list,     dtype=object)
+    envs.close()
+    print(f"Collected: {obs_buf.shape[0]} steps from {num_envs} envs")
+    return obs_buf, obs_next_buf, act_buf, rew_buf, done_buf, info_buf
 
 def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N=10):
     # 如果 N==0 或者关键样本太少，不做增强
@@ -340,6 +211,41 @@ def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N
     return obs_aug[idx], obsn_aug[idx], act_aug[idx], rew_aug[idx], done_aug[idx]
 
 
+def run_env_worker(args):
+    env_fn, cfg, wandb_run, policy, rmax_exploration, save_img = args
+    env = env_fn()  # 每个子进程单独创建自己的环境
+    return run_env(env, cfg, wandb_run, policy, rmax_exploration, save_img)
+
+def run_env_multiprocess(cfg, wandb_run, policy=None, rmax_exploration=None, save_img=False, num_workers=4):
+    import multiprocessing as mp
+    from modelBased.common.utils import get_env
+
+    # 设置多进程启动方式（只需设置一次）
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass  # 如果已经设置过就忽略
+
+    # 环境构造函数：每个子进程用它创建独立环境
+    env_fn = lambda: get_env(cfg.env.name)
+
+    # 多个子进程的参数列表
+    args_list = [(env_fn, cfg, wandb_run, policy, rmax_exploration, save_img) for _ in range(num_workers)]
+
+    with mp.Pool(processes=num_workers) as pool:
+        results = pool.map(run_env_worker, args_list)
+
+    # 合并结果
+    obs_np, obs_next_np, act_np, rew_np, done_np, info_np = zip(*results)
+
+    return (
+        np.concatenate(obs_np),
+        np.concatenate(obs_next_np),
+        np.concatenate(act_np),
+        np.concatenate(rew_np),
+        np.concatenate(done_np),
+        np.concatenate(info_np),
+    )
 def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None, save_img=False):
     obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
@@ -468,7 +374,7 @@ def data_collect(cfg: DictConfig):
 
 
 
-def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False):
+def data_collect_api(cfg: DictConfig, env, wandb_run, save_img):
     hparam = cfg.env
     obs, obs_next, act,rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
         # 指定要过采样的动作：pickup 和 toggle
@@ -483,6 +389,11 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False):
 def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=False):
     hparam = cfg.env
     obs, obs_next, act, rew, done, info = run_env_multiprocess(env, hparam, wandb_run, save_img=save_img)
+    save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
+
+def data_collect_api_vectorized(cfg: DictConfig, env, wandb_run, save_img=False):
+    hparam = cfg.env
+    obs, obs_next, act, rew, done, info = run_env_vectorized(env, hparam, wandb_run, save_img=save_img)
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
 if __name__ == "__main__": 

@@ -5,7 +5,7 @@ training_generator:
   map_height: 6
   data_dir: ${oc.env:GENERATOR_PATH}/data/dataset/generated_data_final.json
   batch_size: 1
-  n_cpu: 4
+  n_cpu: 0
   # model
   z_shape: 128
   generator: "deconv"
@@ -22,7 +22,7 @@ training_generator:
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500.pkl
   learning_buffer_size: 5000 # 5000
   learning_buffer_threshold: 0.0001
-  learning_steps: 200 # 1000
+  learning_steps: 100 # 1000
   
 
 # 2.collect data from the generated env
@@ -33,6 +33,7 @@ env:
     episodes: 500  # 500 number of episodes to start 
     data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
+    num_workers: 4 # number of workers to use for data collection
 
 # 3. attension model
 attention_model:
@@ -42,7 +43,7 @@ attention_model:
   grid_shape: [3, 0, 0]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
   attention_mask_size: 5
   batch_size: 128  # test 64/128/256
-  n_cpu: 4
+  n_cpu: 0
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
@@ -87,7 +88,7 @@ PPO:
   # PPO training
   env_type: empty # empty, with obj
   has_continuous_action_space: False
-  max_ep_len: 2500  # max timesteps in one episode 8000 2000
+  max_ep_len: 5000  # max timesteps in one episode 8000
   action_std: 0.1  # set same std for action distribution which was used while saving
   i_episode: 0
   K_epochs: 20  # update policy for K epochs
@@ -97,7 +98,7 @@ PPO:
   lr_critic: 0.001  # learning rate for critic
   checkpoint_path_wm: ${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt
   time_step: 0
-  max_training_timesteps: 1.5e6 #1e6
+  max_training_timesteps: 2e6 #1e6
   # max_training_timesteps: 3e5
   action_std_decay_freq: 3000
   action_std_decay_rate: 0.95
@@ -108,7 +109,7 @@ PPO:
   total_test_episodes: 1000
   render: True
   visualize: false
-  save_gif: True
+  save_gif: False
   save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
   save_csv: False
   save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv

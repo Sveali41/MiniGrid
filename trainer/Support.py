@@ -99,12 +99,11 @@ class Support:
             file_path = os.path.join(file_dir, env_database)
             env_layout = self.load_text_map(file_path)
             env = self.wrap_env_from_text(file_path)
-        return env, env_layout
 
-    def collect_data_from_env(self, env, wandb_run, validate=False):
+    def collect_data_from_env(self, env, wandb_run, validate, save_img):
         print("++++++++++++++++++++++++++++++++++++ collecting data from the environment... ++++++++++++++++++++++++++++++++++++++++++++++")
         self.del_env_data_file()  # clear the data_save_path
-        self.collect_data_trainer(env, wandb_run, validate=validate)  # collect data from the env for training the WM
+        self.collect_data_trainer(env, wandb_run, validate=validate, save_img=save_img)  # collect data from the env for training the WM
         if validate:
             print("Data collected for validation.")
         else:
@@ -194,8 +193,7 @@ class Support:
         ))
         return env
     
-    def collect_data_trainer(self, env, wandb_run, validate=False):
-        save_img = True
+    def collect_data_trainer(self, env, wandb_run, validate, save_img):
         if validate:
             # just select small amount of data for validation
             self.cfg.env.collect.episodes = 20

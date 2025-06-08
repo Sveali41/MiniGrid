@@ -65,8 +65,12 @@ def run(cfg: DictConfig):
             env, env_layout = support.generate_env_from_generator(
                 cfg, env_database[step], file_dir
             )
+            if step % 10 == 0:
+                save_img = True
+            else:
+                save_img = False
             cfg.attention_model.freeze_weight = False
-            support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run)
+            support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run, save_img = save_img) 
             cur_old_params, cur_fisher = support.train_world_model(cfg, old_params, fisher, env_layout=None, replay_data=replay_data)
             old_params, fisher = cur_old_params, cur_fisher
             task_npz_train = np.load(cfg.attention_model.data_dir, allow_pickle=True)
@@ -135,7 +139,7 @@ def run(cfg: DictConfig):
             support.add_into_learning_buffer(env_layout, wm_loss, samples, learning_buffer)
             
 
-        if step % 5 == 0 and step != 0:
+        if step % 5 == 0:
             rows = 30
             cols = 30
             num_maps = 5
@@ -145,7 +149,7 @@ def run(cfg: DictConfig):
             # train the policy on the final task set
             if use_wandb:
                 main_run.log({"final_task_performance": float(avg_loss)}, step=step)
-            if step % 20 == 0 and step != 0:
+            if step % 30 == 0 and step != 0:
                 support.train_policy_on_final_task(cfg, final_task_set)
                 main_run = wandb.init(
                 project='World_Model_Curriculum_Learning', 
