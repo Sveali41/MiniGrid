@@ -99,6 +99,7 @@ class Support:
             file_path = os.path.join(file_dir, env_database)
             env_layout = self.load_text_map(file_path)
             env = self.wrap_env_from_text(file_path)
+        return env, env_layout
 
     def collect_data_from_env(self, env, wandb_run, validate, save_img):
         print("++++++++++++++++++++++++++++++++++++ collecting data from the environment... ++++++++++++++++++++++++++++++++++++++++++++++")
