@@ -60,7 +60,7 @@ def run(cfg: DictConfig):
         else:
             replay_data = None
 
-        if step % 10 == 0:
+        if step % 5 == 0:
             save_img = True
         else:
             save_img = False
@@ -151,7 +151,7 @@ def run(cfg: DictConfig):
             avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set, wandb_run=main_run)
             # train the policy on the final task set
             if use_wandb:
-                main_run.log({"final_task_performance": float(avg_loss)}, step=step)
+                main_run.log({"final_task_performance": avg_loss})
             if step % 30 == 0 and step != 0:
                 support.train_policy_on_final_task(cfg, final_task_set)
                 main_run = wandb.init(

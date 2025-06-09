@@ -344,7 +344,7 @@ class Support:
         loss_set = []
         for final_task in final_task_set:
             env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
-            self.collect_data_from_env(env, wandb_run, validate=True)
+            self.collect_data_from_env(env, wandb_run, validate=True, save_img=False)
             loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
             loss_set.append(loss[0]['avg_val_loss_wm'])
         avg_loss = sum(loss_set) / len(loss_set)

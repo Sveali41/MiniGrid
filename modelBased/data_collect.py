@@ -391,10 +391,47 @@ def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=Fals
     obs, obs_next, act, rew, done, info = run_env_multiprocess(env, hparam, wandb_run, save_img=save_img)
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
-def data_collect_api_vectorized(cfg: DictConfig, env, wandb_run, save_img=False):
+def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, min_steps=10000):
     hparam = cfg.env
-    obs, obs_next, act, rew, done, info = run_env_vectorized(env, hparam, wandb_run, save_img=save_img)
-    save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
+
+    original_episodes = hparam.collect.episodes
+
+    # 初始化数据缓存
+    obs_all, obsn_all, act_all, rew_all, done_all, info_all = [], [], [], [], [], []
+    total_steps = 0
+    round_idx = 0
+
+    while total_steps < min_steps:
+        print(f"Round {round_idx+1}, collecting {hparam.collect.episodes} episodes...")
+        obs, obs_next, act, rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
+
+        obs_all.append(obs)
+        obsn_all.append(obs_next)
+        act_all.append(act)
+        rew_all.append(rew)
+        done_all.append(done)
+        info_all.append(info)
+
+        total_steps += len(obs)
+        print(f"Total steps collected: {total_steps}")
+
+        if total_steps < min_steps:
+            hparam.collect.episodes = max(1, original_episodes // 3)
+            print(f"Not enough data. Increasing episode count to {hparam.collect.episodes}.")
+
+        round_idx += 1
+
+    # 合并最终数据
+    obs_all = np.concatenate(obs_all, axis=0)
+    obsn_all = np.concatenate(obsn_all, axis=0)
+    act_all = np.concatenate(act_all, axis=0)
+    rew_all = np.concatenate(rew_all, axis=0)
+    done_all = np.concatenate(done_all, axis=0)
+    info_all = np.concatenate(info_all, axis=0)
+
+    print(f"Final data shape: {obs_all.shape}")
+    save_experiments(cfg.env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)
+
 
 if __name__ == "__main__": 
     data_collect() 
