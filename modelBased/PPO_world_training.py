@@ -129,8 +129,10 @@ def add_object_to_inventory(delta_state, info):
         info['carraying_key'] (bool): Whether the agent is carrying a key.
     """
 
-    if (delta_state == -4).any():
+    if (delta_state[0,:,:] == -4).any():
         info['carrying_key'] = True
+    else:
+        info['carrying_key'] = False
 
     return info
 
@@ -231,12 +233,12 @@ def run_training_wm(cfg):
         if env_type == 'empty':
             action_dim = 3
         else:
-            action_dim = 6
+            action_dim = 5
     else:
         if env_type == 'empty':
             action_dim = 3
         else:
-            action_dim = 6
+            action_dim = 5
     state_dim = np.prod(env.observation_space['image'].shape)
     ppo_agent = PPO(state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space,
                     action_std)
@@ -268,12 +270,13 @@ def run_training_wm(cfg):
             
             state_norm = utils.normalize_obs(state_0, hparams_world_model.obs_norm_values)
             action, state_buffer, action_buffer, action_logprob, state_val = ppo_agent.select_action(state_norm.flatten()) # state is the dimension of flatten
+
  
             state_masked = process_data(state_0.clone(), hparams_world_model.attention_mask_size)
             with torch.no_grad():
                 delta_masked, _ = model(state_masked, action, info)
             
-            info = add_object_to_inventory(delta_masked, info)
+            
             
             state_pre_masked = state_masked + delta_masked
             if visualize_flag:
@@ -287,7 +290,7 @@ def run_training_wm(cfg):
                                                               hparams_world_model.valid_values_color,
                                                               hparams_world_model.valid_values_state)
 
-
+            info = add_object_to_inventory((state_pre_masked - state_masked), info)
             agent_postion_yx = utils.get_agent_position(state_0)
             state_pre = utils.put_back_masked_state(state_pre_masked, state_0, hparams_world_model.attention_mask_size, agent_postion_yx)
             

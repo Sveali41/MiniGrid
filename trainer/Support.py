@@ -101,10 +101,10 @@ class Support:
             env = self.wrap_env_from_text(file_path)
         return env, env_layout
 
-    def collect_data_from_env(self, env, wandb_run, validate, save_img):
+    def collect_data_from_env(self, env, wandb_run, validate, save_img, max_steps):
         print("++++++++++++++++++++++++++++++++++++ collecting data from the environment... ++++++++++++++++++++++++++++++++++++++++++++++")
         self.del_env_data_file()  # clear the data_save_path
-        self.collect_data_trainer(env, wandb_run, validate=validate, save_img=save_img)  # collect data from the env for training the WM
+        self.collect_data_trainer(env, wandb_run, validate=validate, save_img=save_img, max_steps= max_steps)  # collect data from the env for training the WM
         if validate:
             print("Data collected for validation.")
         else:
@@ -123,14 +123,15 @@ class Support:
         validation_error, _ = AttentionWM_training.train_api(cfg, old_params, fisher, env_layout)
         return validation_error
 
-    def generate_final_task(self, rows, cols, num_maps, save=True):
+    def generate_final_task(self, rows, cols, num_maps, save=True, wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 
+                            key_p_range=(0.1, 0.15), max_len=1e7,random_gen_max=3e4):
         final_task_dict = generate_envs_dataset(
             rows, cols, num_maps,
-            wall_p_range=(0.1, 0.5),
-            door_p_range=(0, 0),
-            key_p_range=(0, 0),
-            max_len=1e7,
-            random_gen_max=3e4
+            wall_p_range=wall_p_range,
+            door_p_range=door_p_range,
+            key_p_range=key_p_range,
+            max_len=max_len,
+            random_gen_max=random_gen_max
         )
         file_names = []
         if save:
@@ -194,13 +195,13 @@ class Support:
         ))
         return env
     
-    def collect_data_trainer(self, env, wandb_run, validate, save_img):
+    def collect_data_trainer(self, env, wandb_run, validate, save_img, max_steps):
         if validate:
             # just select small amount of data for validation
             self.cfg.env.collect.episodes = 20
             save_img = False
         if not os.path.exists(self.cfg.env.collect.data_save_path):
-            data_collect_api(self.cfg, env, wandb_run, save_img)
+            data_collect_api(self.cfg, env, wandb_run, save_img, max_steps=max_steps)
     
     def decision_model(self):
         return random.choice([0, 1])
@@ -241,12 +242,18 @@ class Support:
 
 
 
-    def env_editor(self, env, dynamic_object, flip_ratio=0.2, max_attempts=20000):
+    def env_editor(self, env, dynamic_object, flip_ratio=0.15, max_attempts=20000):
         """
         Mutate the environment by:
         - Swapping movable elements (e.g., 8, 4, 5) to new valid positions
         - Flipping wall/floor tiles (1 ↔ 2) inside inner area only
         """
+
+        if 4 or 5 in dynamic_object:
+            key_door = True
+        else:
+            key_door = False
+
         if flip_ratio <= 0.03:
             env_original_layout = env.copy()
             env = self.wrap_env(torch.tensor(env_original_layout).unsqueeze(0))
@@ -276,7 +283,7 @@ class Support:
                 empty_inner_coords.remove((new_i, new_j))
             
 
-            if is_reachable(env):
+            if is_reachable(env, key_door=key_door):
                 env_layout = env
                 env = self.wrap_env(torch.tensor(env).unsqueeze(0))
                 return env, env_layout
@@ -298,13 +305,15 @@ class Support:
         if os.path.exists(self.cfg.env.collect.data_save_path):
             os.remove(self.cfg.env.collect.data_save_path)
 
-    def generate_final_task_set(self, rows, cols, num_maps):
+    def generate_final_task_set(self, rows, cols, num_maps, wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 
+                            key_p_range=(0.1, 0.15), max_len=1e7,random_gen_max=1e5):
         """
         Generate a set of final tasks for wm performance evaluation.
         """
         print("++++++++++++++++++++++++++++++++++++ generating final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
   
-        final_task_set = self.generate_final_task(rows, cols, num_maps, save=True)
+        final_task_set = self.generate_final_task(rows, cols, num_maps, save=True, wall_p_range=wall_p_range,
+                            door_p_range=door_p_range, key_p_range=key_p_range, max_len=max_len, random_gen_max=random_gen_max)
 
         print(f"Final task set generated with {num_maps} maps.")
         return final_task_set
@@ -344,7 +353,7 @@ class Support:
         loss_set = []
         for final_task in final_task_set:
             env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
-            self.collect_data_from_env(env, wandb_run, validate=True, save_img=False)
+            self.collect_data_from_env(env, wandb_run, validate=True, save_img=False, max_steps=1e4)
             loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
             loss_set.append(loss[0]['avg_val_loss_wm'])
         avg_loss = sum(loss_set) / len(loss_set)

@@ -9,6 +9,9 @@ import numpy as np
 from typing import List
 import pickle
 import torch
+from matplotlib.colors import LinearSegmentedColormap
+from typing import Tuple, Optional
+
 def save_dic(dict, save_path='dict.pkl'):
     with open(save_path, 'wb') as f:
         pickle.dump(dict, f)
@@ -39,34 +42,131 @@ def replace_vector_value(grid, src_type='chart'):
     return vectorized_replace(grid)
 # 生成可达的地图，保证每个生成的地图都可到达终点
 
-def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_range=(0, 0), key_p_range=(0,0), max_len = 1e7,random_gen_max=2e4, save_flag=False, save_path=None):
-    all_map = True  #  True: Feature can be repearted, False: no repeat
+
+def add_start_next_to_key(
+    grid: np.ndarray,
+    start_value: int = 3,
+    key_value: int = 5,
+    floor_value: int = 1
+) -> Tuple[np.ndarray, bool]:
+    """
+    Attempts to place a start tile 'S' (start_value) next to any key tile (key_value).
+    
+    The function iterates over every key found on the map. For each one, it checks
+    the four adjacent tiles (up/down/left/right). If at least one key has an empty
+    floor tile next to it, the function places 'S' there and returns True.
+    Otherwise, it leaves the grid unchanged and returns False.
+
+    Args:
+        grid (np.ndarray): 2D array representing the map.
+        start_value (int): Numeric code to denote the start S (default = 3).
+        key_value (int): Numeric code for key K (default = 5).
+        floor_value (int): Numeric code for empty floor (default = 1).
+
+    Returns:
+        Tuple[np.ndarray, bool]:
+          - Modified grid with an 'S' placed (if successful).
+          - Boolean flag: True if placement succeeded; False otherwise.
+    """
+    height, width = grid.shape
+    
+    # Find all key positions on the grid
+    keys = [tuple(pos) for pos in np.argwhere(grid == key_value)]
+    if not keys:
+        # No keys present; cannot place start
+        return grid, False
+
+    # Shuffle keys to avoid bias in deterministic maps
+    np.random.shuffle(keys)
+
+    # For each key, check its four neighbors
+    for (ky, kx) in keys:
+        for (dy, dx) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            sy, sx = ky + dy, kx + dx
+            # Ensure neighbor is within bounds and is empty floor
+            if 0 <= sy < height and 0 <= sx < width and grid[sy, sx] == floor_value:
+                new_grid = grid.copy()
+                new_grid[sy, sx] = start_value  # Place the start tile
+                return new_grid, True
+
+    # No valid adjacent floor space found for any key
+    return grid, False
+
+
+def add_start_next_to_key(
+    grid: np.ndarray,
+    start_value: int = 3,
+    key_value: int = 5,
+    floor_value: int = 1
+) -> Tuple[np.ndarray, bool]:
+    """
+    Attempts to place a start tile 'S' (start_value) next to any key tile (key_value).
+    Iterates through all keys and tries the four adjacent cells; if an empty floor cell
+    is found, places 'S' there and returns True. Otherwise returns False.
+    """
+    h, w = grid.shape
+    keys = [tuple(p) for p in np.argwhere(grid == key_value)]
+    if not keys:
+        return grid, False
+
+    random.shuffle(keys)
+    for ky, kx in keys:
+        for dy, dx in [(-1,0), (1,0), (0,-1), (0,1)]:
+            sy, sx = ky + dy, kx + dx
+            if 0 <= sy < h and 0 <= sx < w and grid[sy, sx] == floor_value:
+                new_grid = grid.copy()
+                new_grid[sy, sx] = start_value
+                return new_grid, True
+
+    return grid, False
+
+
+def generate_envs_dataset(
+    rows, cols, num_maps,
+    wall_p_range=(0.2, 0.5),
+    door_p_range=(0.075, 0.15),
+    key_p_range=(0.1, 0.3),
+    max_len=1e7, random_gen_max=2e4,
+    save_flag=False, save_path=None
+):
+    all_map = True
     index = 0
     archive = {}
-    while max_len > 0:  # 如果最大尝试次数超过1500000还没有积累够num_maps 就停止
+
+    key_door = bool(key_p_range[1] or door_p_range[1] > 0)
+
+    while max_len > 0:
         print(f'gen minigrid remain attempt: {max_len}')
-        wall_p = random.uniform(wall_p_range[0], wall_p_range[1])
-        door_p = random.uniform(door_p_range[0], door_p_range[1])
+        wall_p = random.uniform(*wall_p_range)
+        door_p = random.uniform(*door_p_range)
         key_p = random.uniform(door_p, key_p_range[1])
-        try_again = True
-        gen_times = 0 
-        while try_again:
+
+        grid = None
+        gen_times = 0
+        while True:
             gen_times += 1
             max_len -= 1
-            if gen_times > random_gen_max:  # 如果随机生成超过15000次还是不可达，就用使用路径生成的方法
-                grid = generate_single_env(rows, cols, 'path', wall_prob=wall_p, key_prob=key_p, door_prob=key_p)
-                try_again = False
-            else:                  # 默认使用随机生成迷宫策略
-                grid = generate_single_env(rows, cols, 'random', wall_prob=wall_p, key_prob=key_p, door_prob=key_p)
-                if is_reachable(grid):
-                    try_again = False
-        if all_map:  
+
+            if gen_times > random_gen_max:
+                grid = generate_single_env(rows, cols, 'path', wall_prob=wall_p, key_prob=key_p, door_prob=door_p)
+                break
+            else:
+                grid = generate_single_env(rows, cols, 'random', wall_prob=wall_p, key_prob=key_p, door_prob=door_p)
+                if is_reachable(grid, key_door):
+                    break
+
+        # Place an 'S' next to at least one key
+        grid, placed = add_start_next_to_key(grid, start_value=3, key_value=5)
+        if not placed:
+            continue  # Skip this map if we couldn't place the start
+
+        # Archive the map
+        if all_map:
             archive[index] = grid
             if save_flag:
-                visualize_grid(grid, save_flag=True,save_path=save_path, idx=f'map_{index}')  # 这里的路径要主动修改
+                visualize_grid(grid, save_flag=True, save_path=save_path, idx=f'map_{index}')
             index += 1
         else:
-            # 特征描述
             desc = compute_descriptors(grid)
             bd1 = min(num_maps - 1, int(desc[0] * num_maps))
             bd2 = min(num_maps - 1, int(desc[1] * num_maps))
@@ -74,57 +174,129 @@ def generate_envs_dataset(rows, cols, num_maps, wall_p_range=(0.1, 0.5), door_p_
             if key not in archive:
                 archive[key] = grid
                 if save_flag:
-                    visualize_grid(grid, save_flag=True,save_path=save_path, idx=f'{bd1}_{bd2}')  # 这里的路径要主动修改
-        if len(archive) >= num_maps:  # 如果积累够， 提前跳出
+                    visualize_grid(grid, save_flag=True, save_path=save_path, idx=f'{bd1}_{bd2}')
+
+        if len(archive) >= num_maps:
             break
 
     return archive
 
-def is_reachable(grid: List[List[str]]) -> bool:
+def is_reachable(grid: np.ndarray, key_door: bool = False) -> bool:
     h, w = grid.shape
-    # 查找目标点（'G'）的位置
-    starts = np.argwhere(grid != 2)
+    starts = np.argwhere(grid == 1)
+    if len(starts) == 0:
+        return False
 
-    # BFS 遍历从所有起始点及目标可达性
-    visited = set()
-    queue = deque()
+    goal_exists = np.any(grid == 8)
 
-    # 将所有起始点加入队列
-    queue.append(starts[0])
+    if not goal_exists:
+        return False
 
-    # 标记目标是否可达
-    reached_goal = False
+    # --- key_door 模式：要求完整路径（起点→钥匙→门→目标）
+    if key_door:
+        WALL, KEY, DOOR, GOAL = 2, 4, 5, 8
 
-    while queue:
-        y, x = queue.popleft()
+        # Step 1: get all non-wall-and-door positions
+        traversable_init = lambda v: v != WALL and v != DOOR
+        traversable_after_key = lambda v: v != WALL  # After getting key, doors are OK
 
-        # 如果当前位置是目标，标记为到达目标
-        if grid[y, x] == 8:
-            reached_goal = True
+        non_wall_door_tiles = np.argwhere(grid != WALL)
+        if len(non_wall_door_tiles) == 0:
+            return False
 
-        # 如果已经访问过这个节点，跳过
-        if (y, x) in visited:
-            continue
+        # Step 2: check if any key is reachable (without going through doors)
+        key_positions = np.argwhere(grid == KEY)
+        if len(key_positions) == 0:
+            return False  # No key, but door exists → invalid
 
-        # 标记为已访问
-        visited.add((y, x))
+        # From the first open tile, check if key is reachable
+        def bfs(start_pos, valid_tile_func):
+            visited = set()
+            queue = deque([tuple(start_pos)])
+            reached = set()
 
-        # 4个方向扩展
-        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            ny, nx = y + dy, x + dx
-            if 1 <= ny < h-1 and 1 <= nx < w-1 and (ny, nx) not in visited:
-                ntile = grid[ny, nx]
-                if ntile != 2:  # 如果不是墙壁，继续扩展
-                    queue.append((ny, nx))
+            while queue:
+                y, x = queue.popleft()
+                if (y, x) in visited:
+                    continue
+                visited.add((y, x))
+                reached.add((y, x))
 
-    if not reached_goal:
-        return False  # 如果目标不可达，返回 False
+                for dy, dx in [(-1,0), (1,0), (0,-1), (0,1)]:
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w:
+                        if (ny, nx) not in visited and valid_tile_func(grid[ny, nx]):
+                            queue.append((ny, nx))
+            return reached
 
-    # 检查所有非墙壁区域是否都被访问，确保没有封闭区域
-    if len(visited) == len(starts):
-        return True  # 没有封闭区域并且目标可达
+        # Phase 1: reach the key without passing doors
+        reachable_to_key = bfs(starts[0], traversable_init)
+        if not any(tuple(pos) in reachable_to_key for pos in key_positions):
+            return False  # Key is not reachable
+
+        # Phase 2: after getting key, BFS with door tiles allowed
+        reachable_after_key = bfs(key_positions[0], traversable_after_key)
+
+        # Check if goal is reachable
+        goal_positions = np.argwhere(grid == GOAL)
+        if len(goal_positions) == 0:
+            return False
+        if not any(tuple(pos) in reachable_after_key for pos in goal_positions):
+            return False  # Goal is unreachable even after opening doors
+
+        # Final check: are all non-wall (including door) tiles reachable now?
+        non_wall_tiles = np.argwhere(grid != WALL)
+        if all(tuple(pos) in reachable_after_key for pos in non_wall_tiles):
+            return True
+        else:
+            return False  # Enclosure detected (some area still unreachable)
+    
     else:
-        return False  # 存在封闭区域
+        # 查找目标点（'G'）的位置
+        starts = np.argwhere(grid != 2)
+
+        # BFS 遍历从所有起始点及目标可达性
+        visited = set()
+        queue = deque()
+
+        # 将所有起始点加入队列
+        queue.append(starts[0])
+
+        # 标记目标是否可达
+        reached_goal = False
+
+        while queue:
+            y, x = queue.popleft()
+
+            # 如果当前位置是目标，标记为到达目标
+            if grid[y, x] == 8:
+                reached_goal = True
+
+            # 如果已经访问过这个节点，跳过
+            if (y, x) in visited:
+                continue
+
+            # 标记为已访问
+            visited.add((y, x))
+
+            # 4个方向扩展
+            for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                ny, nx = y + dy, x + dx
+                if 1 <= ny < h-1 and 1 <= nx < w-1 and (ny, nx) not in visited:
+                    ntile = grid[ny, nx]
+                    if ntile != 2:  # 如果不是墙壁，继续扩展
+                        queue.append((ny, nx))
+
+        if not reached_goal:
+            return False  # 如果目标不可达，返回 False
+
+        # 检查所有非墙壁区域是否都被访问，确保没有封闭区域
+        if len(visited) == len(starts):
+            return True  # 没有封闭区域并且目标可达
+        else:
+            return False  # 存在封闭区域
+
+
 
 def visualize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
 
@@ -144,14 +316,16 @@ def visualize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
         grid = replace_vector_value(grid, 'chart')
 
     def show_grid(map, index=''):
+        colors = ['blue', 'cyan', 'green', 'yellow', 'orange', 'red']
+        custom_cmap = LinearSegmentedColormap.from_list("custom", colors, N=256)    
         if save_flag:
             save_file_name = os.path.join(save_path, f'gen_{index}.png')
-            plt.imshow(map, cmap='viridis')  # 显示图像
+            plt.imshow(map, cmap=custom_cmap)  # 显示图像
             plt.colorbar()
             plt.savefig(save_file_name)  # 保存图像
             plt.close()  # 关闭图像，避免显示
         else:
-            plt.imshow(map, cmap='viridis')  # 显示图像
+            plt.imshow(map, cmap=custom_cmap)  # 显示图像
             plt.colorbar()
             plt.show()  # 显示图像
             
@@ -163,17 +337,21 @@ def visualize_grid(grid, count=10, save_flag=False, save_path='', idx =''):
             plt.close()
             show_grid(grid[index,:,:], index)
 
-def generate_path_branch(height, width, path_length=50, branch_num=5, branch_length=7):
+def generate_path_branch(height, width, path_length=50, branch_num=5, branch_length=7, key_prob=0.0, door_prob=0.0):
+    import numpy as np
+    import random
+
     grid = 2 * np.ones((height, width), dtype=int)
-    
+
     def valid(y, x):
         return 1 <= y < height - 1 and 1 <= x < width - 1
+
     path = []
-    y, x = random.randint(1, height-2), random.randint(1, width-2)
+    y, x = random.randint(1, height - 2), random.randint(1, width - 2)
     goal = y, x
     grid[y, x] = 1
     path.append((y, x))
-    directions = [(-1,0), (1,0), (0,-1), (0,1)]
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
     # 主路径
     for _ in range(path_length):
@@ -186,9 +364,10 @@ def generate_path_branch(height, width, path_length=50, branch_num=5, branch_len
                 path.append((y, x))
                 break
 
-    # 分支
+    # 分支路径
     for _ in range(branch_num):
-        if not path: break
+        if not path:
+            break
         sy, sx = random.choice(path)
         for _ in range(branch_length):
             random.shuffle(directions)
@@ -199,8 +378,26 @@ def generate_path_branch(height, width, path_length=50, branch_num=5, branch_len
                     sy, sx = ny, nx
                     path.append((sy, sx))
                     break
+
+    # --- 添加 key 和 door ---
+    path_no_goal = [pos for pos in path if pos != goal]  # 排除 goal 位置
+    random.shuffle(path_no_goal)
+
+    num_keys = int(len(path_no_goal) * key_prob)
+    num_doors = int(len(path_no_goal) * door_prob)
+
+    key_positions = path_no_goal[:num_keys]
+    door_positions = path_no_goal[num_keys:num_keys + num_doors]
+
+    for y, x in key_positions:
+        grid[y, x] = 4  # key
+    for y, x in door_positions:
+        grid[y, x] = 5  # door
+
+    # 设置目标点
     grid[goal] = 8
     return grid
+
 
 #region
 # def generate_main_path(height, width, path_len):
@@ -233,37 +430,51 @@ def generate_path_branch(height, width, path_length=50, branch_num=5, branch_len
 #endregion
 
 def random_generate(height, width, wall_ratio=0.1, key_ratio=0.05, door_ratio=0.05):
-    grid = 2 * np.ones((height, width), np.uint8)
-    grid[1:-1, 1:-1] = 1
-    goal_yx = (random.randint(1, height - 2), random.randint(1, width - 2))  # random G
+    grid = 2 * np.ones((height, width), np.uint8)  # 2: wall
+    grid[1:-1, 1:-1] = 1  # 1: empty floor
 
-    grid[goal_yx[0],goal_yx[1]] = 8 # add G
+    # Place goal (G = 8)
+    goal_yx = (random.randint(1, height - 2), random.randint(1, width - 2))
+    grid[goal_yx[0], goal_yx[1]] = 8
+
+    # Get all empty positions (value == 1)
     empty_pos = np.argwhere(grid == 1)
     empty_count = len(empty_pos)
-    
+
     # Number of each object to place
-    num_keys = int(empty_count * key_ratio)
-    num_doors = int(empty_count * door_ratio)
     num_walls = int(empty_count * wall_ratio)
+    num_keys = int(num_walls * key_ratio)
+    num_doors = int(num_walls * door_ratio)
+    
 
-    # Shuffle to randomize placement
-    empty_pos = empty_pos[np.random.permutation(len(empty_pos))]
+    # Shuffle positions
+    np.random.shuffle(empty_pos)
 
-    # Place walls
+    # Place keys (value = 6)
+    key_positions = empty_pos[:num_keys]
+    for y, x in key_positions:
+        grid[y, x] = 4
+
+    # Place doors (value = 7)
+    door_positions = empty_pos[num_keys:num_keys + num_doors]
+    for y, x in door_positions:
+        grid[y, x] = 5
+
+    # Place additional walls (value = 2)
     wall_positions = empty_pos[num_keys + num_doors : num_keys + num_doors + num_walls]
     for y, x in wall_positions:
         grid[y, x] = 2
 
     return grid
     
-def generate_single_env(height, width, mode, wall_prob=0.3, key_prob=0.05, door_prob=0.05):
+def generate_single_env(height, width, mode, wall_prob=0.3, key_prob=0.15, door_prob=0.75):
     if mode == 'random':
         grid = random_generate(height, width, wall_prob, key_prob, door_prob)
     else:
         path_len = int((height-2) * (width-2) * (1-wall_prob))
         branch_num = random.randint(height//2,width)
         branch_length = random.randint(height//3,height-2)
-        grid = generate_path_branch(height, width, path_len,branch_num=branch_num, branch_length=branch_length) 
+        grid = generate_path_branch(height, width, path_len,branch_num=branch_num, branch_length=branch_length, key_prob=key_prob, door_prob=door_prob) 
     return grid
 
 # =========================

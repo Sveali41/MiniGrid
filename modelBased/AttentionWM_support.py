@@ -53,7 +53,7 @@ class AttentionModule(nn.Module):
         self.data_type = data_type
         if data_type == 'discrete':
             self.input_channel = 21
-            self.action_embedding = nn.Embedding(7, embed_dim)
+            self.action_embedding = nn.Embedding(5, embed_dim)
             self.key_embedding    = nn.Embedding(2, embed_dim)
         else:
             self.input_channel = grid_shape[0]

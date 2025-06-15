@@ -86,7 +86,7 @@ def run_env_vectorized(env, cfg: DictConfig, wandb_run, policy=None, rmax_explor
         # set device to cpu or cuda
     device = torch.device('cpu')
     if save_img and wandb_run is not None:
-        _ = env.reset()[0]
+        obs = env.reset()[0]
         img = env.get_frame()
         wandb_run.log({"Mini-tasks": wandb.Image(img)})
 
@@ -157,58 +157,76 @@ def run_env_vectorized(env, cfg: DictConfig, wandb_run, policy=None, rmax_explor
     print(f"Collected: {obs_buf.shape[0]} steps from {num_envs} envs")
     return obs_buf, obs_next_buf, act_buf, rew_buf, done_buf, info_buf
 
-def augment_interactions(obs, obs_next, act, rew, done, actions_to_oversample, N=10):
-    # 如果 N==0 或者关键样本太少，不做增强
+
+def augment_interactions_keydoor_only(
+    obs, obs_next, act, rew, done, info, actions_to_oversample, N=10
+):
+    """
+    Oversample only relevant 'key-door' interactions involving pickup/toggle and carrying a key.
+
+    Parameters:
+        obs: np.ndarray           - current observations
+        obs_next: np.ndarray      - next observations
+        act: np.ndarray           - actions taken
+        rew: np.ndarray           - rewards received
+        done: np.ndarray          - episode termination flags
+        info: list of dict        - metadata per step (e.g., "carrying_key")
+        actions_to_oversample: iterable - actions to target for oversampling
+        N: int                    - number of times to repeat each key interaction
+
+    Returns:
+        obs_aug, obsn_aug, act_aug, rew_aug, done_aug, info_aug
+        Each output is shuffled in unison, and `info` is included in the augmentation.
+    """
+    # If no oversampling requested, return inputs as-is
     if N <= 1:
-        return obs, obs_next, act, rew, done
-    """
-    对指定的关键动作做过采样 N 倍，其余样本保留一次。
-    actions_to_oversample: list of action indices, e.g. [pickup, toggle]
-    """
-    # Rest of augment_interactions ...(obs, obs_next, act, rew, done, actions_to_oversample, N=10):
-    """
-    对指定的关键动作做过采样 N 倍，其余样本保留一次。
-    actions_to_oversample: list of action indices, e.g. [pickup, toggle]
-    """
-    # obs shape e.g. (num_samples, 1, H, W, C)
-    # act shape e.g. (num_samples, 1)
-    num_samples = obs.shape[0]
-    flat_act = act.reshape(num_samples)  # (num_samples,)
+        return obs, obs_next, act, rew, done, info
 
-    # 检测哪些 transition 实际改变了环境
-    changed = np.any(obs != obs_next, axis=tuple(range(1, obs.ndim)))  # (num_samples,)
+    num = obs.shape[0]
+    flat_act = act.reshape(num)
 
-    # 标记要过采样的关键动作
-    mask_key = np.zeros(num_samples, dtype=bool)
+    # Detect any change in observation -> indicates an interaction happened
+    changed = np.any(obs != obs_next, axis=tuple(range(1, obs.ndim)))
+
+    # Flag steps where the agent is carrying the key
+    keydoor_flags = np.array([i.get("carrying_key", False) for i in info])
+
+    # Build a mask for actions that we want to oversample
+    mask_key = np.zeros(num, dtype=bool)
     for a in actions_to_oversample:
         mask_key |= (flat_act == a)
 
-    # 最终 mask：既是关键动作，又发生了环境变化
-    mask = mask_key & changed
+    # Combine masks: action is in the target set, state changed, carrying the key
+    mask = mask_key & changed & keydoor_flags
 
-    # 分离关键交互与普通样本
-    obs_key    = obs[mask]
-    obsn_key   = obs_next[mask]
-    act_key    = act[mask]
-    rew_key    = rew[mask]
-    done_key   = done[mask]
+    # Split data into key (to oversample) and normal parts
+    obs_key, obsn_key = obs[mask], obs_next[mask]
+    act_key, rew_key, done_key = act[mask], rew[mask], done[mask]
+    info_key = [info[i] for i, m in enumerate(mask) if m]
 
-    obs_norm    = obs[~mask]
-    obsn_norm   = obs_next[~mask]
-    act_norm    = act[~mask]
-    rew_norm    = rew[~mask]
-    done_norm   = done[~mask]
+    obs_norm, obsn_norm = obs[~mask], obs_next[~mask]
+    act_norm, rew_norm, done_norm = act[~mask], rew[~mask], done[~mask]
+    info_norm = [info[i] for i, m in enumerate(mask) if not m]
 
-    # 过采样关键交互
-    obs_aug      = np.concatenate([obs_norm] + [obs_key] * N, axis=0)
-    obsn_aug     = np.concatenate([obsn_norm] + [obsn_key] * N, axis=0)
-    act_aug      = np.concatenate([act_norm] + [act_key] * N, axis=0)
-    rew_aug      = np.concatenate([rew_norm] + [rew_key] * N, axis=0)
-    done_aug     = np.concatenate([done_norm] + [done_key] * N, axis=0)
+    # Create augmented data: repeat key samples N times, keep normal once
+    obs_aug  = np.concatenate([obs_norm] + [obs_key] * N, axis=0)
+    obsn_aug = np.concatenate([obsn_norm] + [obsn_key] * N, axis=0)
+    act_aug  = np.concatenate([act_norm] + [act_key] * N, axis=0)
+    rew_aug  = np.concatenate([rew_norm] + [rew_key] * N, axis=0)
+    done_aug = np.concatenate([done_norm] + [done_key] * N, axis=0)
+    info_aug = info_norm + info_key * N
 
-    # 打乱数据
+    # Shuffle all arrays together to maintain alignment
     idx = np.random.permutation(len(obs_aug))
-    return obs_aug[idx], obsn_aug[idx], act_aug[idx], rew_aug[idx], done_aug[idx]
+    return (
+        obs_aug[idx],
+        obsn_aug[idx],
+        act_aug[idx],
+        rew_aug[idx],
+        done_aug[idx],
+        [info_aug[i] for i in idx]
+    )
+
 
 
 def run_env_worker(args):
@@ -246,10 +264,15 @@ def run_env_multiprocess(cfg, wandb_run, policy=None, rmax_exploration=None, sav
         np.concatenate(done_np),
         np.concatenate(info_np),
     )
+
 def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None, save_img=False):
+    device = torch.device('cpu')
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
     obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
+
     if save_img and wandb_run is not None:
         img = env.get_frame()
         wandb_run.log({"Mini-tasks": wandb.Image(img)})
@@ -281,8 +304,11 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
 
 
             # Collect data
+            # mapping toggle to 4 for the PPO training
+            if act == 5:
+                act = 4
             act_list.append([act])
-            obs_next_list.append([obs_next['image']])
+            obs_next_list.append([obs_next['image']])   
             rew_list.append([reward])
             done_list.append([done])
             info_list.append([info])
@@ -368,42 +394,43 @@ def data_collect(cfg: DictConfig):
         mode = 'human'
     env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path=hparam.env_path, 
                                         custom_mission="Find the key and open the door.",
-                                        max_steps=5000, render_mode=mode))
+                                        max_steps=10000, render_mode=mode))
     obs, obs_next, act,rew, done = run_env(env, hparam, wandb_run=None, save_img=False)
     save_experiments(cfg.env,obs,obs_next, act, rew, done)
+    env.close()
 
-
-
-def data_collect_api(cfg: DictConfig, env, wandb_run, save_img):
-    hparam = cfg.env
-    obs, obs_next, act,rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
-        # 指定要过采样的动作：pickup 和 toggle
-    # actions_to_oversample = [env.unwrapped.actions.toggle]
-    # obs, obs_next, act, rew, done = augment_interactions(
-    #     obs, obs_next, act, rew, done,
-    #     actions_to_oversample,
-    #     N=10  # 过采样倍数
-    # )
-    save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
 def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=False):
     hparam = cfg.env
     obs, obs_next, act, rew, done, info = run_env_multiprocess(env, hparam, wandb_run, save_img=save_img)
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
-def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, min_steps=10000):
+def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, max_steps=10000):
     hparam = cfg.env
-
     original_episodes = hparam.collect.episodes
-
+    obs = env.reset()[0]
+    obs_layout = obs['image']
+    if np.any(obs_layout[:, :, 0] == 5) or np.any(obs_layout[:, :, 0] == 4):
+        key_door = True
+    else:
+        key_door = False
     # 初始化数据缓存
     obs_all, obsn_all, act_all, rew_all, done_all, info_all = [], [], [], [], [], []
     total_steps = 0
     round_idx = 0
 
-    while total_steps < min_steps:
+    while total_steps < max_steps:
         print(f"Round {round_idx+1}, collecting {hparam.collect.episodes} episodes...")
         obs, obs_next, act, rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
+
+        if key_door:
+            print("Applying key-door augmentation...")
+            actions_to_oversample = [env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
+            obs, obs_next, act, rew, done, info = augment_interactions_keydoor_only(
+                obs, obs_next, act, rew, done, info,
+                actions_to_oversample,
+                N=20
+            )
 
         obs_all.append(obs)
         obsn_all.append(obs_next)
@@ -415,7 +442,7 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, min_steps=
         total_steps += len(obs)
         print(f"Total steps collected: {total_steps}")
 
-        if total_steps < min_steps:
+        if total_steps < max_steps:
             hparam.collect.episodes = max(1, original_episodes // 3)
             print(f"Not enough data. Increasing episode count to {hparam.collect.episodes}.")
 
@@ -431,6 +458,7 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, min_steps=
 
     print(f"Final data shape: {obs_all.shape}")
     save_experiments(cfg.env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)
+    env.close()
 
 
 if __name__ == "__main__": 

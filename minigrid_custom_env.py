@@ -290,6 +290,8 @@ class CustomMiniGridEnv(MiniGridEnv):
         # Use random.randint to select an index and then retrieve the position
         index = np.random.randint(0, len(empty_positions))
         return empty_positions[index]
+    
+
 
 
 if __name__ == "__main__":
