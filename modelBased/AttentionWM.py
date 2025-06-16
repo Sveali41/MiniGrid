@@ -219,7 +219,9 @@ class AttentionWorldModel(pl.LightningModule):
         # --- 可视化 ---
         self.step_counter += 1
         if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
-            self.visual_func.visualize_attention(obs, act, attentionWeight, obs_next, obs_pred, self.step_counter)
+            next = obs_next + obs 
+            pre = obs_pred + obs
+            self.visual_func.visualize_attention(obs, act, attentionWeight, next, pre, self.step_counter, info)
 
         return loss_total
 
@@ -234,7 +236,9 @@ class AttentionWorldModel(pl.LightningModule):
         ## visualization
         self.step_counter += 1
         if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
-            self.visual_func.visualize_attention(obs, act, attention_weight, obs_next, obs_pred, self.step_counter)
+            next = obs_next + obs 
+            pre = obs_pred + obs
+            self.visual_func.visualize_attention(obs, act, attention_weight, next, pre, self.step_counter, info)
         # return {"batch_idx": batch_idx, "val_loss": loss['loss_obs']}
         return {"loss_wm_val": loss['loss_obs']}
 

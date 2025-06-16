@@ -265,8 +265,11 @@ class Visualization:
         custom_cmap = plt.cm.get_cmap('jet', num_colors)
         self._plot(state_image, custom_cmap, f"Dir: {direction}  Act: {action}", shrink)
 
-    def visualize_attention(self, obs, act, attentionWeight, obs_next, obs_pred, step_counter, size=(14, 10), shrink=1):
-        
+    def visualize_attention(self, obs, act, attentionWeight, obs_next, obs_pred, step_counter, info=None, size=(14, 10), shrink=1):
+        if info is not None and 'carrying_key' in info:
+            key = info['carrying_key'][-1].item()
+        else:
+            key = "None"
         mask_size = self.cfg.attention_mask_size
         channel, row, col = 3, mask_size, mask_size
         # Preprocess data
@@ -297,7 +300,7 @@ class Visualization:
         num_colors = 13
         custom_cmap = plt.cm.get_cmap('jet', num_colors)
         plt.figure(figsize=size)
-        self._plot_subplot(2, 2, 1, state_image, custom_cmap, 'State', f"State  Dir: {direction}  Action: {action}", shrink)
+        self._plot_subplot(2, 2, 1, state_image, custom_cmap, 'State', f"State  Dir: {direction}  Action: {action}, key:{key}", shrink)
         self._plot_subplot(2, 2, 3, heat_map, 'viridis', 'Attention', "Attention Heatmap", shrink)
         self._plot_subplot(2, 2, 2, obs_next, custom_cmap, 'Next State', f"Next State  Dir:{next_direction}", shrink)
         self._plot_subplot(2, 2, 4, obs_pred, custom_cmap, 'Predicted', f"Pre State  Dir: {pre_direction}", shrink)

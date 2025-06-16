@@ -131,7 +131,7 @@ class Support:
             door_p_range=door_p_range,
             key_p_range=key_p_range,
             max_len=max_len,
-            random_gen_max=random_gen_max
+            random_gen_max=random_gen_max, start_point_flag=True
         )
         file_names = []
         if save:

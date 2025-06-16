@@ -131,9 +131,6 @@ def add_object_to_inventory(delta_state, info):
 
     if (delta_state[0,:,:] == -4).any():
         info['carrying_key'] = True
-    else:
-        info['carrying_key'] = False
-
     return info
 
 
@@ -260,8 +257,8 @@ def run_training_wm(cfg):
         state_0 = utils.ColRowCanl_to_CanlRowCol(state_init)
         goal_position_yx = find_position(state_0, (8, 1, 0)) # find the goal position
         current_ep_reward = 0
+        info = {'carrying_key': False}
         for t in range(1, int(max_ep_len + 1)):
-            info = {}
             need_update = False
             # self.buffer.states = [state.squeeze(0) if state.dim() > 1 else state for state in self.buffer.states]
             if t==1:
@@ -275,8 +272,6 @@ def run_training_wm(cfg):
             state_masked = process_data(state_0.clone(), hparams_world_model.attention_mask_size)
             with torch.no_grad():
                 delta_masked, _ = model(state_masked, action, info)
-            
-            
             
             state_pre_masked = state_masked + delta_masked
             if visualize_flag:

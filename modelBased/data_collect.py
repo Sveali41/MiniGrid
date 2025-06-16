@@ -305,8 +305,6 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
 
             # Collect data
             # mapping toggle to 4 for the PPO training
-            if act == 5:
-                act = 4
             act_list.append([act])
             obs_next_list.append([obs_next['image']])   
             rew_list.append([reward])
@@ -338,6 +336,7 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
     obs_np = np.concatenate(obs_list)
     obs_next_np = np.concatenate(obs_next_list)
     act_np = np.concatenate(act_list)
+    act_np[act_np == 5] = 4  
     rew_np = np.concatenate(rew_list)
     done_np = np.concatenate(done_list)
     info_np = np.concatenate(info_list)
@@ -385,6 +384,64 @@ def data_augmentation(cfg: DictConfig, obs, obs_next, act, rew, done):
     print(done_aug.shape)
 
     return obs_aug, obs_next_aug, act_aug, rew_aug, done_aug
+
+
+def sample_keydoor_pref(
+    obs, obs_next, act, rew, done, info,
+    key_repeat=5,            
+    move_keep_ratio=0.2      
+):
+
+    num = obs.shape[0]
+    flat_act = act.reshape(num)
+    KEYDOOR_ACTIONS = [env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
+
+    is_keydoor = np.zeros(num, dtype=bool)
+ 
+    for a in KEYDOOR_ACTIONS:
+        is_keydoor |= (flat_act == a)
+
+    is_keydoor |= np.array([i.get("carrying_key", False) for i in info])
+
+    kd_idx  = np.where(is_keydoor)[0]
+    mov_idx = np.where(~is_keydoor)[0]
+
+  
+    obs_kd      = np.repeat(obs[kd_idx],      key_repeat, axis=0)
+    obsn_kd     = np.repeat(obs_next[kd_idx], key_repeat, axis=0)
+    act_kd      = np.repeat(act[kd_idx],      key_repeat, axis=0)
+    rew_kd      = np.repeat(rew[kd_idx],      key_repeat, axis=0)
+    done_kd     = np.repeat(done[kd_idx],     key_repeat, axis=0)
+    info_kd     = [info[i] for i in kd_idx for _ in range(key_repeat)]
+
+
+    keep_mov = np.random.rand(len(mov_idx)) < move_keep_ratio
+    mov_keep_idx = mov_idx[keep_mov]
+
+    obs_mov      = obs[mov_keep_idx]
+    obsn_mov     = obs_next[mov_keep_idx]
+    act_mov      = act[mov_keep_idx]
+    rew_mov      = rew[mov_keep_idx]
+    done_mov     = done[mov_keep_idx]
+    info_mov     = [info[i] for i in mov_keep_idx]
+
+ 
+    obs_aug  = np.concatenate([obs_kd,  obs_mov ], axis=0)
+    obsn_aug = np.concatenate([obsn_kd, obsn_mov], axis=0)
+    act_aug  = np.concatenate([act_kd,  act_mov ], axis=0)
+    rew_aug  = np.concatenate([rew_kd,  rew_mov ], axis=0)
+    done_aug = np.concatenate([done_kd, done_mov], axis=0)
+    info_aug = info_kd + info_mov
+
+    idx = np.random.permutation(len(obs_aug))
+    return (
+        obs_aug[idx],
+        obsn_aug[idx],
+        act_aug[idx],
+        rew_aug[idx],
+        done_aug[idx],
+        [info_aug[i] for i in idx]
+    )
 
 @hydra.main(version_base=None, config_path = str(WORLD_MODEL_PATH / "config"), config_name="config")
 def data_collect(cfg: DictConfig):

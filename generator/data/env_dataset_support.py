@@ -40,7 +40,6 @@ def replace_vector_value(grid, src_type='chart'):
         }
     vectorized_replace = np.vectorize(lambda x: mapping.get(x, x)) 
     return vectorized_replace(grid)
-# 生成可达的地图，保证每个生成的地图都可到达终点
 
 
 def add_start_next_to_key(
@@ -93,33 +92,6 @@ def add_start_next_to_key(
     return grid, False
 
 
-def add_start_next_to_key(
-    grid: np.ndarray,
-    start_value: int = 3,
-    key_value: int = 5,
-    floor_value: int = 1
-) -> Tuple[np.ndarray, bool]:
-    """
-    Attempts to place a start tile 'S' (start_value) next to any key tile (key_value).
-    Iterates through all keys and tries the four adjacent cells; if an empty floor cell
-    is found, places 'S' there and returns True. Otherwise returns False.
-    """
-    h, w = grid.shape
-    keys = [tuple(p) for p in np.argwhere(grid == key_value)]
-    if not keys:
-        return grid, False
-
-    random.shuffle(keys)
-    for ky, kx in keys:
-        for dy, dx in [(-1,0), (1,0), (0,-1), (0,1)]:
-            sy, sx = ky + dy, kx + dx
-            if 0 <= sy < h and 0 <= sx < w and grid[sy, sx] == floor_value:
-                new_grid = grid.copy()
-                new_grid[sy, sx] = start_value
-                return new_grid, True
-
-    return grid, False
-
 
 def generate_envs_dataset(
     rows, cols, num_maps,
@@ -127,7 +99,8 @@ def generate_envs_dataset(
     door_p_range=(0.075, 0.15),
     key_p_range=(0.1, 0.3),
     max_len=1e7, random_gen_max=2e4,
-    save_flag=False, save_path=None
+    save_flag=False, save_path=None,
+    start_point_flag=False
 ):
     all_map = True
     index = 0
@@ -156,9 +129,10 @@ def generate_envs_dataset(
                     break
 
         # Place an 'S' next to at least one key
-        grid, placed = add_start_next_to_key(grid, start_value=3, key_value=5)
-        if not placed:
-            continue  # Skip this map if we couldn't place the start
+        if start_point_flag:
+            grid, placed = add_start_next_to_key(grid, start_value=3, key_value=5)
+            if not placed:
+                continue  # Skip this map if we couldn't place the start
 
         # Archive the map
         if all_map:
@@ -390,9 +364,9 @@ def generate_path_branch(height, width, path_length=50, branch_num=5, branch_len
     door_positions = path_no_goal[num_keys:num_keys + num_doors]
 
     for y, x in key_positions:
-        grid[y, x] = 4  # key
+        grid[y, x] = 5  # key
     for y, x in door_positions:
-        grid[y, x] = 5  # door
+        grid[y, x] = 4  # door
 
     # 设置目标点
     grid[goal] = 8
@@ -453,12 +427,12 @@ def random_generate(height, width, wall_ratio=0.1, key_ratio=0.05, door_ratio=0.
     # Place keys (value = 6)
     key_positions = empty_pos[:num_keys]
     for y, x in key_positions:
-        grid[y, x] = 4
+        grid[y, x] = 5
 
     # Place doors (value = 7)
     door_positions = empty_pos[num_keys:num_keys + num_doors]
     for y, x in door_positions:
-        grid[y, x] = 5
+        grid[y, x] = 4
 
     # Place additional walls (value = 2)
     wall_positions = empty_pos[num_keys + num_doors : num_keys + num_doors + num_walls]

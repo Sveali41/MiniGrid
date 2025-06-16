@@ -12,7 +12,8 @@ if __name__ == "__main__":
                 max_len=1e7,
                 random_gen_max=3e4,
                 save_flag= True,
-                save_path='/home/siyao/project/rlPractice/MiniGrid/generator/result',)
+                save_path='/home/siyao/project/rlPractice/MiniGrid/generator/result', start_point_flag=False)
+
     print("Generated {} maps.".format(len(task_dict)))
     # save the dataset
     save_dic(task_dict, '/home/siyao/project/rlPractice/MiniGrid/generator/data/grid500_kd.pkl')
