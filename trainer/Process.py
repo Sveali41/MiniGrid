@@ -36,7 +36,7 @@ Process
 '''
 
 
-@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_test")
+@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config")
 def run(cfg: DictConfig):
     use_wandb = cfg.training_generator.use_wandb
     if use_wandb:
