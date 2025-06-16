@@ -155,10 +155,10 @@ def run(cfg: DictConfig):
                                 wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 
                                 key_p_range=(0.1, 0.15), max_len=1e7,random_gen_max=1e5)
             # === Step 2: Assessing performance on final task set ===
-            # avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set, wandb_run=main_run)
+            avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set, wandb_run=main_run)
             # # train the policy on the final task set
-            # if use_wandb:
-            #     main_run.log({"final_task_performance": avg_loss})
+            if use_wandb:
+                main_run.log({"final_task_performance": avg_loss})
 
         if step % 30 == 0 and step != 0:
         # if step % 30 == 0:
