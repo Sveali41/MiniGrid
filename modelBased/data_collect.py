@@ -462,7 +462,7 @@ def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=Fals
     obs, obs_next, act, rew, done, info = run_env_multiprocess(env, hparam, wandb_run, save_img=save_img)
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
-def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, max_steps=10000):
+def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000):
     hparam = cfg.env
     original_episodes = hparam.collect.episodes
     obs = env.reset()[0]
@@ -504,6 +504,7 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img=False, max_steps=
             print(f"Not enough data. Increasing episode count to {hparam.collect.episodes}.")
 
         round_idx += 1
+        save_img = False
 
     # 合并最终数据
     obs_all = np.concatenate(obs_all, axis=0)

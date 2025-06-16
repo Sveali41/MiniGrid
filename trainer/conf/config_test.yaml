@@ -47,7 +47,7 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 25  # 25
+  n_epochs: 5  # 25
   lr: 1e-4 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
@@ -63,7 +63,7 @@ attention_model:
   model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_world_model.ckpt
 
   # plot
-  visualization: True     
+  visualization: False     
   visualize_every: 1
   save_path: ${oc.env:TRAINER_PATH}/visulization
   direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
