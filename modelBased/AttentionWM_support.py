@@ -102,7 +102,13 @@ class AttentionModule(nn.Module):
             action_emb = self.action_embedding(action)
             if info is not None and 'carrying_key' in info:
                 has_key = info['carrying_key']
+                if not torch.is_tensor(has_key):                 # plain bool / int
+                    has_key = torch.tensor(has_key, device=state.device)
+                else:                                            # already a tensor
+                    has_key = has_key.to(state.device)
                 key_emb = self.key_embedding(has_key.long())     # (B, D)
+                if key_emb.ndim == 1: 
+                    key_emb = key_emb.unsqueeze(0)  
                 ak = torch.cat([action_emb, key_emb], dim=-1)      # (B, 2D)
                 action_emb = self.act_key_fc(ak)   
         else:

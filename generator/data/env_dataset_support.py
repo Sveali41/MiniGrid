@@ -168,7 +168,7 @@ def is_reachable(grid: np.ndarray, key_door: bool = False) -> bool:
 
     # --- key_door 模式：要求完整路径（起点→钥匙→门→目标）
     if key_door:
-        WALL, KEY, DOOR, GOAL = 2, 4, 5, 8
+        WALL, KEY, DOOR, GOAL = 2, 5, 4, 8
 
         # Step 1: get all non-wall-and-door positions
         traversable_init = lambda v: v != WALL and v != DOOR

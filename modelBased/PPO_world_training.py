@@ -122,14 +122,14 @@ def add_object_to_inventory(delta_state, info):
     Add an object to the agent's inventory in the environment.
     It should depend on the changes between next state and current state.
     the delta: whether the delta includes a minus key value 
-    assuming for key valus == 4
+    assuming for key valus == 5
     
     Args:
         for a keydoor environment
         info['carraying_key'] (bool): Whether the agent is carrying a key.
     """
 
-    if (delta_state[0,:,:] == -4).any():
+    if (delta_state[0,:,:] == -5).any():
         info['carrying_key'] = True
     return info
 

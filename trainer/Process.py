@@ -160,7 +160,7 @@ def run(cfg: DictConfig):
             if use_wandb:
                 main_run.log({"final_task_performance": avg_loss})
 
-        if step % 50 == 0 and step != 0:
+        if step % 200 == 0 and step != 0:
         # if step % 30 == 0:
             support.train_policy_on_final_task(cfg, final_task_set)
             main_run = wandb.init(
