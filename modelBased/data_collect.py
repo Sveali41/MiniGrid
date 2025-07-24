@@ -1,6 +1,6 @@
 import sys
 sys.path.append('/home/siyao/project/rlPractice/MiniGrid/modelBased')
-from .common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT
+from .common.utils import normalize_obs, ColRowCanl_to_CanlRowCol, WORLD_MODEL_PATH, PROJECT_ROOT, Visualization
 from minigrid_custom_env import *
 from minigrid.wrappers import FullyObsWrapper, ImgObsWrapper
 from path import *
@@ -159,7 +159,7 @@ def run_env_vectorized(env, cfg: DictConfig, wandb_run, policy=None, rmax_explor
 
 
 def augment_interactions_keydoor_only(
-    obs, obs_next, act, rew, done, info, actions_to_oversample, N=10
+    obs, obs_next, act, rew, done, info, actions_to_oversample, N=10, shuffle=True
 ):
     """
     Oversample only relevant 'key-door' interactions involving pickup/toggle and carrying a key.
@@ -217,15 +217,25 @@ def augment_interactions_keydoor_only(
     info_aug = info_norm + info_key * N
 
     # Shuffle all arrays together to maintain alignment
-    idx = np.random.permutation(len(obs_aug))
-    return (
-        obs_aug[idx],
-        obsn_aug[idx],
-        act_aug[idx],
-        rew_aug[idx],
-        done_aug[idx],
-        [info_aug[i] for i in idx]
-    )
+    if shuffle:
+        idx = np.random.permutation(len(obs_aug))
+        return (
+            obs_aug[idx],
+            obsn_aug[idx],
+            act_aug[idx],
+            rew_aug[idx],
+            done_aug[idx],
+            [info_aug[i] for i in idx]
+        )
+    else:
+        return (
+            obs_aug,
+            obsn_aug,
+            act_aug,
+            rew_aug,
+            done_aug,
+            info_aug
+        )
 
 
 
@@ -283,9 +293,10 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
     meaningful_actions = [env.unwrapped.actions.forward, env.unwrapped.actions.left, env.unwrapped.actions.right, env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
 
     # Use tqdm for progress tracking
-    with tqdm(total=cfg.collect.episodes, desc="Collecting Episodes") as pbar:
-
-        while episodes < cfg.collect.episodes:
+    visual_func = Visualization(cfg.attention_model)
+    with tqdm(total=cfg.env.collect.episodes, desc="Collecting Episodes") as pbar:
+        info_list.append([{'carrying_key': False}])  
+        while episodes < cfg.env.collect.episodes:
             obs_list.append([obs['image']])
 
             # Select an action
@@ -302,6 +313,7 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
             else:
                 info['carrying_key'] = False
 
+            # visual_func.visualize_single_state(obs_next['image'], act, info, ep=episodes, index=index,save_flag=True)
 
             # Collect data
             # mapping toggle to 4 for the PPO training
@@ -318,20 +330,23 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
                 rmax_exploration.update_visit_count(obs['image'], act)
 
             # Visualize if needed
-            if cfg.visualize:
+            if cfg.env.visualize:
                 env.render()
                 time.sleep(0.1)
 
             # Reset environment on episode end
             if done or trunc:
+                info_list.pop()
                 episodes += 1
                 pbar.update(1)
                 if episodes % 100 == 0:
                     print(f"Episode {episodes}")
                 obs = env.reset()[0]
+                info_list.append([{'carrying_key': False}])  
             else:
                 obs = obs_next
 
+    info_list.pop()
     # Convert collected data to numpy arrays
     obs_np = np.concatenate(obs_list)
     obs_next_np = np.concatenate(obs_next_list)
@@ -463,8 +478,8 @@ def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=Fals
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
 def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000):
-    hparam = cfg.env
-    original_episodes = hparam.collect.episodes
+    hparam = cfg
+    original_episodes = hparam.env.collect.episodes
     obs = env.reset()[0]
     obs_layout = obs['image']
     if np.any(obs_layout[:, :, 0] == 5) or np.any(obs_layout[:, :, 0] == 4):
@@ -477,17 +492,17 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000)
     round_idx = 0
 
     while total_steps < max_steps:
-        print(f"Round {round_idx+1}, collecting {hparam.collect.episodes} episodes...")
+        print(f"Round {round_idx+1}, collecting {hparam.env.collect.episodes} episodes...")
         obs, obs_next, act, rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
 
-        if key_door:
-            print("Applying key-door augmentation...")
-            actions_to_oversample = [env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
-            obs, obs_next, act, rew, done, info = augment_interactions_keydoor_only(
-                obs, obs_next, act, rew, done, info,
-                actions_to_oversample,
-                N=20
-            )
+        # if key_door:
+        #     print("Applying key-door augmentation...")
+        #     actions_to_oversample = [env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
+        #     obs, obs_next, act, rew, done, info = augment_interactions_keydoor_only(
+        #         obs, obs_next, act, rew, done, info,
+        #         actions_to_oversample,
+        #         N=20
+        #     )
 
         obs_all.append(obs)
         obsn_all.append(obs_next)
@@ -500,8 +515,8 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000)
         print(f"Total steps collected: {total_steps}")
 
         if total_steps < max_steps:
-            hparam.collect.episodes = max(1, original_episodes // 3)
-            print(f"Not enough data. Increasing episode count to {hparam.collect.episodes}.")
+            hparam.env.collect.episodes = max(1, original_episodes // 3)
+            print(f"Not enough data. Increasing episode count to {hparam.env.collect.episodes}.")
 
         round_idx += 1
         save_img = False

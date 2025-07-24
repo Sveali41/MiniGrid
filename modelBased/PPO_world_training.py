@@ -138,10 +138,10 @@ def add_object_to_inventory(delta_state, info):
 
 @hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
 def training_agent_wm(cfg: DictConfig):
-    regret = run_training_wm(cfg)
+    regret = run_ppo_wm(cfg)
     return regret
 
-def run_training_wm(cfg):
+def run_ppo_wm(cfg):
     hparams = cfg
     
     # 1. World Model

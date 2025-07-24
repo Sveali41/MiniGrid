@@ -17,3 +17,4 @@ generator/visualize
 # ignore model files
 modelBased/models/Rmax
 modelBased/models/AttentionWM
+trainer/visulization

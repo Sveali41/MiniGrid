@@ -108,9 +108,9 @@ class WMRLDataset(Dataset):
         else:
             raise ValueError(f"Invalid data type: {self.hparams.data_type}")
 
-        if mask_size > 0:
-            agent_position_yx = utils.get_agent_position(obs)
-            obs_delta = utils.extract_masked_state(obs_delta, mask_size, agent_position_yx)
+        # if mask_size > 0:
+            # agent_position_yx = utils.get_agent_position(obs)
+            # obs_delta = utils.extract_masked_state(obs_delta, mask_size, agent_position_yx)
 
         if env_type == 'with_obj':
             data = {
@@ -159,9 +159,11 @@ class WMRLDataModule(pl.LightningDataModule):
             loaded = np.load(self.data_dir, allow_pickle=True) # Allow pickle for safety with complex data structures
         data = WMRLDataset(loaded, self.hparams, self.replay_data)
         split_size = int(len(data) * 9 / 10)
-        self.data_train, self.data_test = torch.utils.data.random_split(
-            data, [split_size, len(data) - split_size]
-        )
+        # self.data_train, self.data_test = torch.utils.data.random_split(
+        #     data, [split_size, len(data) - split_size]
+        # )
+        self.data_train = torch.utils.data.Subset(data, range(0, split_size))
+        self.data_test = torch.utils.data.Subset(data, range(split_size, len(data)))
         if len(self.data_test) < 256:
             raise ValueError("The test set is too small. Please ensure the dataset is large enough for splitting.")
 
@@ -169,7 +171,7 @@ class WMRLDataModule(pl.LightningDataModule):
         return DataLoader(
             self.data_train, 
             batch_size=self.hparams.batch_size, 
-            shuffle=True,
+            shuffle=False,
             drop_last=True,
             num_workers=self.hparams.n_cpu,
             pin_memory=True,

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from . import utilis_support
 from typing import Dict
+from matplotlib.colors import LinearSegmentedColormap
 
 def replace_values(arr, old_values, new_values):
     assert arr.ndim >= 2 and len(old_values) == len(new_values)
@@ -244,26 +245,101 @@ class Visualization:
         else:
             plt.show()
 
-    def visualize_single_state(self, obs, act=None, shrink=1):
+    def visualize_single_state(self, obs, act=None, info=None, ep=1, index=1,save_flag=False,shrink=1):
+        act = 4 if act == 5 else act
+        if info is not None and 'carrying_key' in info:
+            key = info['carrying_key']
+        else:
+            key = "None"
+
         if isinstance(obs, np.ndarray): 
             obs = torch.from_numpy(obs).cuda()
 
         plt.close()
-        if obs.max() <= 1:
-            dir_ratio, obj_ratio, act_ratio = 3, 10, 6
-        else:
-            dir_ratio, obj_ratio, act_ratio = 1, 1, 1
+        obs = obs.detach().cpu().numpy()  # Convert tensor to numpy
 
-        state_image = obs[0, :, :].detach().cpu().numpy() * obj_ratio
-        direction = self.cfg.direction_map[round(obs[2, :, :].detach().cpu().numpy().max() * dir_ratio)]
+        state_image = obs[:, :, 0]
+
         if act is None:
             action = "None"
         else:
-            action = self.cfg.action_map[round(act * act_ratio)]
+            action = self.cfg.action_map[int(act)]
     
-        num_colors = 13
-        custom_cmap = plt.cm.get_cmap('jet', num_colors)
-        self._plot(state_image, custom_cmap, f"Dir: {direction}  Act: {action}", shrink)
+        color_list = [
+            "#440154",  # 紫
+            "#3b528b",  # 深蓝
+            "#21918c",  # 蓝绿
+            "#5ec962",  # 绿
+            "#fde725",  # 黄
+            "#f98400",  # 橘
+            "#d00000",  # 红
+        ]
+        custom_cmap = LinearSegmentedColormap.from_list("custom7", color_list, N=7)
+        plt.imshow(state_image, cmap=custom_cmap, interpolation='nearest')
+        plt.title(f"Act: {action}, key:{key}")
+        plt.colorbar(shrink=shrink)
+        if save_flag:
+            if not os.path.exists(self.cfg.save_path):
+                os.mkdir(self.cfg.save_path)
+            save_file = os.path.join(self.cfg.save_path, f"colect data_{ep}_{index}.png")
+            plt.savefig(save_file)
+        else:
+            plt.show()
+
+
+    def visualize_data(self, obs_all, obs_next_all, act, obs, obs_next, info=None, step_counter='', pos_xy=[], size=(14, 10), shrink=1):
+        if info is not None and 'carrying_key' in info:
+            key = info['carrying_key'][-1].item()
+        else:
+            key = "None"
+
+        def convert_ny(data):
+            data = data.detach().cpu().numpy() 
+            return data
+        obs_all = convert_ny(obs_all)
+        obs_next_all = convert_ny(obs_next_all)
+        obs = convert_ny(obs)
+        obs_next = convert_ny(obs_next)
+
+        mask_size = self.cfg.attention_mask_size
+
+
+        obs_mask = obs[:, 0, :, :]  # Convert tensor to numpy
+        all_obs = obs_all[:, 0, :, :]  # Convert tensor to numpy
+        all_obs_next = obs_next_all[:, 0, :, :]   # Convert tensor to numpy
+        direction = [self.cfg.direction_map[int(x)] for x in np.round(obs[:, 2, mask_size//2, mask_size//2])]
+        action = [self.cfg.action_map[int(x)] for x in act[:]]
+        next_direction = [self.cfg.direction_map[int(x)] for x in np.round(obs_next[:, 2, mask_size//2, mask_size//2])]
+        obs_next_mask = obs_next[:, 0, :, :]  # Convert tensor to numpy
+
+        color_list = [
+            "#440154",  # 紫
+            "#3b528b",  # 深蓝
+            "#21918c",  # 蓝绿
+            "#5ec962",  # 绿
+            "#fde725",  # 黄
+            "#f98400",  # 橘
+            "#d00000",  # 红
+        ]
+        custom_cmap = LinearSegmentedColormap.from_list("custom7", color_list, N=7)
+        def show(cur_all_obs, cur_all_next, cur_obs, cur_obs_next, cur_direction, cur_action, cur_next_direction, key, step_counter, index):
+            plt.figure(figsize=size)
+            self._plot_subplot(2, 2, 1, cur_all_obs, custom_cmap, 'whole map', "", shrink)
+            self._plot_subplot(2, 2, 2, cur_all_next, custom_cmap, 'whole map next', "", shrink)
+            self._plot_subplot(2, 2, 3, cur_obs, custom_cmap, 'mask obs', f"Dir: {cur_direction}  Action: {cur_action}, key:{key}", shrink)
+            self._plot_subplot(2, 2, 4, cur_obs_next, custom_cmap, 'mask obs next', f"Dir:{cur_next_direction}", shrink)
+            plt.tight_layout()
+
+            # Save plot
+            if not os.path.exists(self.cfg.save_path):
+                os.mkdir(self.cfg.save_path)
+            save_file = os.path.join(self.cfg.save_path, f"Source_data_{step_counter}_{index}.png")
+            plt.savefig(save_file)
+            plt.close()
+        
+        for i in range(len(act)):
+            show(all_obs[i], all_obs_next[i], obs_mask[i], obs_next_mask[i], direction[i], action[i], next_direction[i], key, step_counter, i)
+        
 
     def visualize_attention(self, obs, act, attentionWeight, obs_next, obs_pred, step_counter, info=None, size=(14, 10), shrink=1):
         if info is not None and 'carrying_key' in info:

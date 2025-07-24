@@ -151,8 +151,6 @@ class AttentionWorldModel(pl.LightningModule):
 
         return lambda_ewc * loss
 
-
-
     def forward(self, state, action, info):
         next_state_pred, attentionWeight = self.model(state, action, info)
         
@@ -176,7 +174,7 @@ class AttentionWorldModel(pl.LightningModule):
             },
         }
 
-    def preprocess_batch(self, batch):
+    def preprocess_batch(self, batch, training=False):
         obs = batch['obs']
         act = batch['act']
         obs_next = batch['obs_next']
@@ -184,13 +182,23 @@ class AttentionWorldModel(pl.LightningModule):
             info = batch['info']
         else:
             info = None
+        
+
         agent_postion_yx_batch = utils.get_agent_position(obs)
         obs_masked = utils.extract_masked_state(obs, self.mask_size, agent_postion_yx_batch)
-        return obs_masked, act, obs_next, info
+        obs_next_masked = utils.extract_masked_state(obs_next, self.mask_size, agent_postion_yx_batch)
+        
+        ## visualization
+        self.step_counter += 1
+        if self.visualizationFlag and self.step_counter % self.visualize_every == 0 and training:
+            next_masked = obs_next_masked + obs_masked 
+            obs_next_all = obs + obs_next
+            self.visual_func.visualize_data(obs, obs_next_all, act, obs_masked, next_masked, info, self.step_counter, agent_postion_yx_batch)
+        return obs_masked, act, obs_next_masked, info
 
 
     def training_step(self, batch, batch_idx):
-        obs, act, obs_next, info = self.preprocess_batch(batch)
+        obs, act, obs_next, info = self.preprocess_batch(batch, True)
         obs_pred, attentionWeight = self(obs, act, info)
 
         if obs_next.dtype != obs_pred.dtype:
@@ -217,11 +225,11 @@ class AttentionWorldModel(pl.LightningModule):
             self.update_lambda_ewc(avg_drift)
 
         # --- 可视化 ---
-        self.step_counter += 1
-        if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
-            next = obs_next + obs 
-            pre = obs_pred + obs
-            self.visual_func.visualize_attention(obs, act, attentionWeight, next, pre, self.step_counter, info)
+        # self.step_counter += 1
+        # if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
+        #     next = obs_next + obs 
+        #     pre = obs_pred + obs
+        #     self.visual_func.visualize_attention(obs, act, attentionWeight, next, pre, self.step_counter, info)
 
         return loss_total
 
@@ -234,11 +242,11 @@ class AttentionWorldModel(pl.LightningModule):
         # print(torch.round(obs_pred))
         self.log_dict(loss)
         ## visualization
-        self.step_counter += 1
-        if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
-            next = obs_next + obs 
-            pre = obs_pred + obs
-            self.visual_func.visualize_attention(obs, act, attention_weight, next, pre, self.step_counter, info)
+        # self.step_counter += 1
+        # if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
+        #     next = obs_next + obs 
+        #     pre = obs_pred + obs
+        #     self.visual_func.visualize_attention(obs, act, attention_weight, next, pre, self.step_counter, info)
         # return {"batch_idx": batch_idx, "val_loss": loss['loss_obs']}
         return {"loss_wm_val": loss['loss_obs']}
 

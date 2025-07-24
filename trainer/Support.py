@@ -369,7 +369,7 @@ class Support:
         for final_task in final_task_set:
             cfg.PPO.wandb_run_name = f"final_task_{final_task}"
             cfg.PPO.env_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{final_task}.txt')
-            PPO_world_training.run_training_wm(cfg)
+            PPO_world_training.run_ppo_wm(cfg)
        
 
 
