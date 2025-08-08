@@ -101,10 +101,10 @@ class Support:
             env = self.wrap_env_from_text(file_path)
         return env, env_layout
 
-    def collect_data_from_env(self, env, wandb_run, validate, save_img, max_steps):
+    def collect_data_from_env(self, env, wandb_run, validate, save_img, log_name, max_steps):
         print("++++++++++++++++++++++++++++++++++++ collecting data from the environment... ++++++++++++++++++++++++++++++++++++++++++++++")
         self.del_env_data_file()  # clear the data_save_path
-        self.collect_data_trainer(env, wandb_run, validate=validate, save_img=save_img, max_steps= max_steps)  # collect data from the env for training the WM
+        self.collect_data_trainer(env, wandb_run, validate=validate, save_img=save_img, log_name=log_name, max_steps=max_steps)  # collect data from the env for training the WM
         if validate:
             print("Data collected for validation.")
         else:
@@ -195,13 +195,16 @@ class Support:
         ))
         return env
     
-    def collect_data_trainer(self, env, wandb_run, validate, save_img, max_steps):
+    def collect_data_trainer(self, env, wandb_run, validate, save_img, log_name, max_steps):
         if validate:
             # just select small amount of data for validation
             self.cfg.env.collect.episodes = 20
-            save_img = False
+            if log_name == 'mini_task':
+                save_img = False
+            else:
+                save_img = True
         if not os.path.exists(self.cfg.env.collect.data_save_path):
-            data_collect_api(self.cfg, env, wandb_run, save_img, max_steps=max_steps)
+            data_collect_api(self.cfg, env, wandb_run, save_img, log_name, max_steps=max_steps)
     
     def decision_model(self):
         return random.choice([0, 1])
@@ -351,9 +354,13 @@ class Support:
         print("++++++++++++++++++++++++++++++++++++ assessing performance on final task set... ++++++++++++++++++++++++++++++++++++++++++++++")
         # Load the trained model
         loss_set = []
-        for final_task in final_task_set:
+        for i, final_task in enumerate(final_task_set):
+            if i == 0:
+                save_img = True
+            else:
+                save_img = False
             env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
-            self.collect_data_from_env(env, wandb_run, validate=True, save_img=False, max_steps=1e4)
+            self.collect_data_from_env(env, wandb_run, validate=False, save_img=save_img, log_name="final_task", max_steps=1e4)
             loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
             loss_set.append(loss[0]['avg_val_loss_wm'])
         avg_loss = sum(loss_set) / len(loss_set)
@@ -370,7 +377,37 @@ class Support:
             cfg.PPO.wandb_run_name = f"final_task_{final_task}"
             cfg.PPO.env_path = os.path.join(TRAINER_PATH, 'level', 'final_task', f'gen_final_task_{final_task}.txt')
             PPO_world_training.run_ppo_wm(cfg)
-       
+
+    # === Resume save/load ===
+    def model_save_checkpoint(self, save_dir, step, old_params, fisher, learning_buffer, fisher_buffer):
+        os.makedirs(save_dir, exist_ok=True)
+        torch.save({'step': step, 'old_params': old_params, 'fisher': fisher}, os.path.join(save_dir, 'wm.pt'))
+        with open(os.path.join(save_dir, 'learning_buffer.pkl'), 'wb') as f:
+            pickle.dump(learning_buffer.buffer, f)
+        with open(os.path.join(save_dir, 'fisher_buffer.pkl'), 'wb') as f:
+            pickle.dump(fisher_buffer.buffer, f)
+
+    def model_load_checkpoint(save_dir, learning_buffer, fisher_buffer):
+        ckpt = torch.load(os.path.join(save_dir, 'wm.pt'))
+        with open(os.path.join(save_dir, 'learning_buffer.pkl'), 'rb') as f:
+            learning_buffer.buffer = pickle.load(f)
+        with open(os.path.join(save_dir, 'fisher_buffer.pkl'), 'rb') as f:
+            fisher_buffer.buffer = pickle.load(f)
+        return ckpt['step'], ckpt['old_params'], ckpt['fisher']
+    
+    def resume_training(self, cfg, learning_buffer, fisher_buffer):
+        resume = cfg.attention_model.resume
+        save_dir = cfg.attention_model.checkpoint_dir
+
+        if resume and os.path.exists(os.path.join(save_dir, 'wm.pt')):
+            start_step, old_params, fisher = self.model_load_checkpoint(save_dir, learning_buffer, fisher_buffer)
+            print(f"Resuming training from step {start_step}")
+        else:
+            start_step = 0
+            old_params, fisher = None, None
+        return start_step, old_params, fisher
+
+        
 
 
 

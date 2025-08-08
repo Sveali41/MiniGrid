@@ -1,20 +1,20 @@
 import sys
-from .common.utils import PROJECT_ROOT
+from common.utils import PROJECT_ROOT
 from minigrid_custom_env import CustomMiniGridEnv
 from minigrid.wrappers import FullyObsWrapper
 import torch
 import numpy as np
-from .PPO import PPO
+from PPO import PPO
 import hydra
 from datetime import datetime
-from .common import utils
+from common import utils
 
 from omegaconf import DictConfig, OmegaConf 
-from . import AttentionWM_support
-from . import Embedding_support
-from . import MLP_support#
+import AttentionWM_support
+import Embedding_support
+import MLP_support
 import wandb
-from .PPO import preprocess_observation 
+from PPO import preprocess_observation 
 import time
 
 

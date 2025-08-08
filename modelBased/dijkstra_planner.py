@@ -1,79 +1,72 @@
 import sys
-from .common.utils import PROJECT_ROOT
+from common.utils import PROJECT_ROOT
 from minigrid_custom_env import CustomMiniGridEnv
 from minigrid.wrappers import FullyObsWrapper
 import torch
 import numpy as np
 import networkx as nx
-import pickle
-from collections import deque
-import random
 from omegaconf import DictConfig
 import hydra
 from datetime import datetime
-from .common import utils
-from . import AttentionWM_support
-from . import Embedding_support
-from . import MLP_support
-from PPO_world_training import find_position, process_data
+from common import utils
+import AttentionWM_support
+import Embedding_support
+import MLP_support
+from PPO_world_training import find_position, process_data, add_object_to_inventory
+import wandb
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 class GraphPlanner:
-    def __init__(self, model, num_actions, mask_size):
-        """
-        model: world-model module, returns (delta_masked, _)
-        num_actions: number of discrete actions
-        mask_size: size used by process_data for masking
-        """
+    def __init__(self, model, num_actions, mask_size, valid_values_obj, valid_values_color, valid_values_state):
         self.model = model
         self.num_actions = num_actions
         self.mask_size = mask_size
-        self.G = nx.DiGraph()  # dynamic graph of masked states
+        self.valid_values_obj = valid_values_obj
+        self.valid_values_color = valid_values_color
+        self.valid_values_state = valid_values_state
+        self.G = nx.DiGraph()
 
-    def _state_key(self, masked: np.ndarray) -> bytes:
-        # convert masked-state array into a hashable bytes key
-        return masked.astype(np.float32).tobytes()
+    def _state_key(self, full_obs: np.ndarray) -> bytes:
+        return full_obs.astype(np.float32).tobytes()
 
-    def expand_node(self, masked: np.ndarray):
-        """
-        For a given masked-state, run every action through the world model
-        and add outgoing edges to the graph.
-        """
-        key = self._state_key(masked)
+    def expand_node(self, full_obs: np.ndarray):
+        key = self._state_key(full_obs)
         if key in self.G:
             return
         self.G.add_node(key)
         for a in range(self.num_actions):
+            masked = process_data(full_obs, self.mask_size)
             with torch.no_grad():
                 delta, _ = self.model(
                     torch.tensor(masked).unsqueeze(0).to(device),
                     torch.tensor([a]).to(device),
-                    {'carrying_key': False}
+                    {'carrying_key': False}  
                 )
-            next_masked = masked + delta.squeeze(0).cpu().numpy()
-            cost = 1.0  # uniform edge cost; you can integrate reward or uncertainty
+            delta_np = delta.squeeze(0).cpu().numpy()
+            next_masked = masked + delta_np
+            next_masked = utils.map_obs_to_nearest_value(
+                next_masked,
+                self.valid_values_obj,
+                self.valid_values_color,
+                self.valid_values_state
+            )
+            next_full = utils.put_back_masked_state(next_masked, full_obs.copy(), self.mask_size, utils.get_agent_position(full_obs))
             self.G.add_edge(
                 key,
-                self._state_key(next_masked),
+                self._state_key(next_full),
                 action=a,
-                weight=cost
+                weight=1.0
             )
 
-    def plan(self, start_masked: np.ndarray, goal_masked: np.ndarray, k: int = 1):
-        """
-        Online graph expansion + A* search between start and goal masked-states.
-        Returns the first k actions on the shortest path.
-        """
-        # ensure both nodes exist and their edges are expanded
-        self.expand_node(start_masked)
-        self.expand_node(goal_masked)
+    def plan(self, start_full: np.ndarray, goal_full: np.ndarray, k: int = 1):
+        self.expand_node(start_full)
+        self.expand_node(goal_full)
 
-        start_key = self._state_key(start_masked)
-        goal_key = self._state_key(goal_masked)
+        start_key = self._state_key(start_full)
+        goal_key = self._state_key(goal_full)
 
-        # admissible heuristic: L2 distance in masked-state space
         def heuristic(n1, n2):
             v1 = np.frombuffer(n1, dtype=np.float32)
             v2 = np.frombuffer(n2, dtype=np.float32)
@@ -84,125 +77,90 @@ class GraphPlanner:
         return actions[:k]
 
 
-class BCAgent(torch.nn.Module):
-    def __init__(self, state_dim, action_dim, hidden=256):
-        super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(state_dim, hidden), torch.nn.ReLU(),
-            torch.nn.Linear(hidden, hidden), torch.nn.ReLU(),
-            torch.nn.Linear(hidden, action_dim)
-        )
+@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "trainer/conf"), config_name="config_test")
+def run_planner_rollout(cfg: DictConfig):
+    hparams = cfg
+    hparams_wm = hparams.attention_model
+    hparams_planner = hparams.planner
 
-    def forward(self, x):
-        return self.net(x)
-
-    def act(self, state):
-        logits = self.net(state)
-        return torch.argmax(logits, dim=-1).item()
-
-    def update(self, batch, optimizer):
-        states, actions = zip(*batch)
-        s = torch.stack(states).to(device)
-        a = torch.tensor(actions, dtype=torch.long, device=device)
-        loss = torch.nn.functional.cross_entropy(self.net(s), a)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        return loss.item()
-
-
-@hydra.main(version_base=None, config_path=str(PROJECT_ROOT / "modelBased/config"), config_name="config")
-def training_agent_wm(cfg: DictConfig):
-    run_planner_wm(cfg)
-
-def run_planner_wm(cfg: DictConfig):
-    # Unpack configs
-    wm_cfg  = cfg.attention_model
-    planner_cfg = cfg.planner
-
-    # 1. Load world model
     MODEL_MAP = {
-            'attention': AttentionWM_support.AttentionModule,
-            'embedding': Embedding_support.EmbeddingModule,
-            'mlp': MLP_support.SimpleNNModule
-        }
-    ModelClass = MODEL_MAP[wm_cfg.model_type.lower()]
+        'attention': AttentionWM_support.AttentionModule,
+        'embedding': Embedding_support.EmbeddingModule,
+        'mlp': MLP_support.SimpleNNModule
+    }
+    ModelClass = MODEL_MAP[hparams_wm.model_type.lower()]
     model = ModelClass(
-        wm_cfg.data_type,
-        wm_cfg.grid_shape,
-        wm_cfg.attention_mask_size,
-        wm_cfg.embed_dim,
-        wm_cfg.num_heads
+        hparams_wm.data_type,
+        hparams_wm.grid_shape,
+        hparams_wm.attention_mask_size,
+        hparams_wm.embed_dim,
+        hparams_wm.num_heads
     ).to(device)
-    utils.load_model_weight(model, wm_cfg.model_save_path)
+    utils.load_model_weight(model, hparams_wm.model_save_path)
     model.eval()
-    mask_size = wm_cfg.attention_mask_size
 
-    # 2. Create environment
     env = FullyObsWrapper(
         CustomMiniGridEnv(
-            txt_file_path=planner_cfg.env_path,
+            txt_file_path=hparams_planner.env_path,
             custom_mission="Find the key and open the door.",
-            max_steps=planner_cfg.max_ep_len,
+            max_steps=hparams_planner.max_ep_len,
             render_mode=None
         )
     )
-    state_dim  = int(np.prod(env.observation_space['image'].shape))
+
     action_dim = env.action_space.n
+    planner = GraphPlanner(
+        model,
+        action_dim,
+        hparams_wm.attention_mask_size,
+        hparams_wm.valid_values_obj,
+        hparams_wm.valid_values_color,
+        hparams_wm.valid_values_state
+    )
 
-    # 3. Initialize planner and BC agent
-    planner   = GraphPlanner(model, action_dim, mask_size)
-    bc_agent  = BCAgent(state_dim, action_dim).to(device)
-    optimizer = torch.optim.Adam(bc_agent.parameters(), lr=planner_cfg.lr_actor)
-    replay    = deque(maxlen=10000)
-    batch_size = planner_cfg.get("batch_size", 512)
-
-    max_steps = planner_cfg.max_training_timesteps
-    max_len   = planner_cfg.max_ep_len
-
+    max_steps = hparams_planner.max_training_timesteps
+    max_len = hparams_planner.max_ep_len
     time_step = 0
-    # 4. Main training loop
+
     while time_step < max_steps:
-        # 4.1 Reset real env to get initial raw observation
-        init_state = env.reset()[0]['image']
-        state_0 = utils.ColRowCanl_to_CanlRowCol(init_state)
-        masked_state = process_data(state_0, mask_size)
-        # Build masked goal (here reusing same masked; replace as needed)
-        goal_pos    = find_position(state_0, (8,1,0))
-        goal_masked = masked_state.copy()
+        full_obs = env.reset()[0]['image']
+        state_0 = utils.ColRowCanl_to_CanlRowCol(full_obs)
+        goal_yx = find_position(state_0, (8, 1, 0))
+        goal_obs = state_0.copy()
+
+        agent_yx = utils.get_agent_position(goal_obs)
+        goal_obs[:, agent_yx[0], agent_yx[1]] = np.array([0, 0, 0], dtype=goal_obs.dtype)
+        goal_obs[:, goal_yx[0], goal_yx[1]] = np.array([10, 0, 0], dtype=goal_obs.dtype)
+
+        planned_actions = planner.plan(state_0, goal_obs, k=max_len)
+
         info = {'carrying_key': False}
+        
+        if not planned_actions:
+            print("No plan found.")
+            continue
 
-        for t in range(1, max_len + 1):
-            # 4.2 Planner → expert action
-            expert_planner = planner.plan(masked_state, goal_masked, k=1)[0]
-
-            # 4.3 Store for behavior cloning
-            state_flat = torch.tensor(masked_state.flatten(), dtype=torch.float32)
-            replay.append((state_flat, expert_planner))
-
-            # 4.4 Roll out one step in the world model
-            sm  = torch.tensor(masked_state, dtype=torch.float32).unsqueeze(0).to(device)
-            a_tensor = torch.tensor([expert_planner], device=device)
+        for t, action_id in enumerate(planned_actions):
+            action = torch.tensor([action_id], device=device)
+            masked = process_data(state_0, hparams_wm.attention_mask_size)
             with torch.no_grad():
-                delta_masked, _ = model(sm, a_tensor, info)
-            masked_state = (masked_state + delta_masked.squeeze(0).cpu().numpy())
+                delta, _ = model(masked.unsqueeze(0).to(device), action, info)
+            delta_np = delta.squeeze(0).cpu().numpy()
+            next_masked = masked + delta_np
+            next_masked = utils.map_obs_to_nearest_value(
+                next_masked,
+                hparams_wm.valid_values_obj,
+                hparams_wm.valid_values_color,
+                hparams_wm.valid_values_state
+            )
+            info = add_object_to_inventory((next_masked - masked), info)
+            agent_pos = utils.get_agent_position(state_0)
+            state_0 = utils.put_back_masked_state(next_masked, state_0, hparams_wm.attention_mask_size, agent_pos)
 
-            # 4.5 Behavior-cloning update
-            if len(replay) >= batch_size and time_step % batch_size == 0:
-                batch = random.sample(replay, batch_size)
-                bc_agent.update(batch, optimizer)
             time_step += 1
-
-            # Optional: define your own done criterion in the world model
-            done = False
-            if done:
+            if time_step >= max_steps:
                 break
-
-    # 5. Save the cloned policy
-    bc_path = planner_cfg.checkpoint_path_wm.replace('.pth', '_bc.pth')
-    torch.save(bc_agent.state_dict(), bc_path)
-
 
 
 if __name__ == "__main__":
-    training_agent_wm()
+    run_planner_rollout()

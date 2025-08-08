@@ -36,20 +36,21 @@ Process
 '''
 
 
-@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config")
+@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_test")
 def run(cfg: DictConfig):
     use_wandb = cfg.training_generator.use_wandb
     if use_wandb:
         wandb.login(key="eeecc8f761c161927a5713203b0362dfcb3181c4")
         main_run = wandb.init(project='World_Model_Curriculum_Learning', entity='18920011663-king-s-college-london', reinit=True)
     old_params, fisher = None, None
+    support = Support.Support(cfg)
     fisher_buffer = FisherReplayBuffer(max_size=150000)
     learning_steps = cfg.training_generator.learning_steps
-    support = Support.Support(cfg)
     # load the map from MAP sample
     print("++++++++++++++++++++++++++++++++++++  loading tasks... ++++++++++++++++++++++++++++++++++++++++++++++")
     env_database, file_dir = support.loading_tasks(cfg)
     learning_buffer = EnvLearningBuffer(max_size=cfg.training_generator.learning_buffer_size)
+    # old_params, fisher = support.resume_training(cfg, learning_buffer, fisher_buffer)
 
     for step in range(learning_steps):
         # within certain training steps
@@ -73,7 +74,8 @@ def run(cfg: DictConfig):
             )
 
             cfg.attention_model.freeze_weight = False
-            support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run, save_img = save_img, max_steps=3e4) 
+
+            support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run if use_wandb else None, save_img = save_img, log_name= 'mini_task', max_steps=3e4) 
             cur_old_params, cur_fisher = support.train_world_model(cfg, old_params, fisher, env_layout=None, replay_data=replay_data)
             old_params, fisher = cur_old_params, cur_fisher
             task_npz_train = np.load(cfg.attention_model.data_dir, allow_pickle=True)
@@ -83,12 +85,13 @@ def run(cfg: DictConfig):
                 'act': task_npz_train['c'],
                 'info': task_npz_train.get('f', None)
             }
+
             fisher_buffer.update_with_random_by_ratio(samples_train, 0.3)
             print("+++++++++++ Editing env +++++++++++")
             env_edited, env_layout = support.env_editor(env_layout, cfg.training_generator.dynamic_objects)
             print("+++++++++++ Checking if add to buffer +++++++++++")
             cfg.attention_model.freeze_weight = True
-            support.collect_data_from_env(env_edited, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img, max_steps=3e4)
+            support.collect_data_from_env(env_edited, wandb_run=main_run if use_wandb else None, validate=cfg.attention_model.freeze_weight, save_img = save_img, log_name='mini_task', max_steps=3e4)
             task_npz = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples = {
                 'obs': task_npz['a'],
@@ -105,7 +108,7 @@ def run(cfg: DictConfig):
                             cfg, env_database[step], file_dir
                         )
             cfg.attention_model.freeze_weight = True
-            support.collect_data_from_env(env, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img, max_steps=3e4)
+            support.collect_data_from_env(env, wandb_run=main_run if use_wandb else None, validate=cfg.attention_model.freeze_weight, save_img = save_img, log_name='mini_task', max_steps=3e4)
             task_npz = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples = {
                 'obs': task_npz['a'],
@@ -120,7 +123,7 @@ def run(cfg: DictConfig):
             cfg.attention_model.freeze_weight = False
             # load the env from the learning buffer
             env, env_string = support.load_env_from_buffer(learning_buffer)
-            support.collect_data_from_env(env, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img, max_steps=3e4)
+            support.collect_data_from_env(env, wandb_run=main_run if use_wandb else None, validate=cfg.attention_model.freeze_weight, save_img = save_img, log_name='mini_task', max_steps=3e4)
             cur_old_params, cur_fisher = support.train_world_model(cfg, old_params, fisher, env_layout=None, replay_data=replay_data)
             task_npz_train = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples_train = {
@@ -135,7 +138,7 @@ def run(cfg: DictConfig):
             env_edited, env_layout = support.env_editor(env_string, cfg.training_generator.dynamic_objects)
             print("+++++++++++ Checking if add to buffer +++++++++++")
             cfg.attention_model.freeze_weight = True
-            support.collect_data_from_env(env_edited, wandb_run=main_run, validate=cfg.attention_model.freeze_weight, save_img = save_img, max_steps=3e4)
+            support.collect_data_from_env(env_edited, wandb_run=main_run if use_wandb else None, validate=cfg.attention_model.freeze_weight, save_img = save_img, log_name='mini_task', max_steps=3e4)
             task_npz = np.load(cfg.attention_model.data_dir, allow_pickle=True)
             samples = {
                 'obs': task_npz['a'],
@@ -148,27 +151,27 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0:
-            rows = 20
-            cols = 20
+            rows = 12
+            cols = 12
             num_maps = 3
             final_task_set = support.generate_final_task_set(rows, cols, num_maps, 
                                 wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 
                                 key_p_range=(0.1, 0.15), max_len=1e7,random_gen_max=1e5)
             # === Step 2: Assessing performance on final task set ===
-            avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set, wandb_run=main_run)
-            # # train the policy on the final task set
+            avg_loss = support.assessing_performance_on_final_task(cfg, final_task_set, wandb_run=main_run if use_wandb else None)
             if use_wandb:
                 main_run.log({"final_task_performance": avg_loss})
 
-        if step % 200 == 0 and step != 0:
-        # if step % 30 == 0:
-            support.train_policy_on_final_task(cfg, final_task_set)
-            main_run = wandb.init(
-            project='World_Model_Curriculum_Learning', 
-            entity='18920011663-king-s-college-london',
-            id=main_run.id,
-            resume="must"
-            )
+        # # === Step 3: policy performance on the final task set ===
+        # if step % 200 == 0 and step != 0:
+        # # if step % 30 == 0:
+        #     support.train_policy_on_final_task(cfg, final_task_set)
+        #     main_run = wandb.init(
+        #     project='World_Model_Curriculum_Learning', 
+        #     entity='18920011663-king-s-college-london',
+        #     id=main_run.id,
+        #     resume="must"
+        #     )
 
     if use_wandb:
         main_run.finish()

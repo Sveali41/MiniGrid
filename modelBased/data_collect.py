@@ -275,17 +275,20 @@ def run_env_multiprocess(cfg, wandb_run, policy=None, rmax_exploration=None, sav
         np.concatenate(info_np),
     )
 
-def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None, save_img=False):
+def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_exploration=None, save_img=False):
     device = torch.device('cpu')
     if torch.cuda.is_available():
         device = torch.device('cuda:0')
     obs_list, obs_next_list, act_list, rew_list, done_list, info_list = [], [], [], [], [], []
     episodes = 0
     obs = env.reset()[0]
+    has_carried_key_this_episode = False  # 新增：本轮是否已经捡过钥匙
+    step_in_episode = 0  # 当前 episode 中的 step 计数器
+
 
     if save_img and wandb_run is not None:
         img = env.get_frame()
-        wandb_run.log({"Mini-tasks": wandb.Image(img)})
+        wandb_run.log({log_name: wandb.Image(img)})
     # Visit count for RMax or exploration tracking
     visit_count = {}
 
@@ -296,7 +299,10 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
     visual_func = Visualization(cfg.attention_model)
     with tqdm(total=cfg.env.collect.episodes, desc="Collecting Episodes") as pbar:
         info_list.append([{'carrying_key': False}])  
+
         while episodes < cfg.env.collect.episodes:
+            step_in_episode += 1
+
             obs_list.append([obs['image']])
 
             # Select an action
@@ -312,6 +318,16 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
                 info['carrying_key'] = True
             else:
                 info['carrying_key'] = False
+            # # check the data
+            # if not has_carried_key_this_episode and info['carrying_key']:
+            #     tqdm.write(f"[Episode {episodes}] First time carrying key at step {step_in_episode}! Action: {act}")
+
+            #     obs_diff = obs_next['image'].astype(int) - obs['image'].astype(int)
+            #     tqdm.write(f"obs_next - obs (nonzero count): {obs_diff}")
+                # 可选：如果图像小，可以直接打印出差值矩阵
+                # tqdm.write(f"Diff:\n{obs_diff}")
+
+                has_carried_key_this_episode = True
 
             # visual_func.visualize_single_state(obs_next['image'], act, info, ep=episodes, index=index,save_flag=True)
 
@@ -340,9 +356,11 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
                 episodes += 1
                 pbar.update(1)
                 if episodes % 100 == 0:
-                    print(f"Episode {episodes}")
+                    tqdm.write(f"Episode {episodes}")
                 obs = env.reset()[0]
                 info_list.append([{'carrying_key': False}])  
+                has_carried_key_this_episode = False  # 重置本轮状态
+                step_in_episode = 0
             else:
                 obs = obs_next
 
@@ -351,6 +369,7 @@ def run_env(env, cfg: DictConfig, wandb_run, policy=None, rmax_exploration=None,
     obs_np = np.concatenate(obs_list)
     obs_next_np = np.concatenate(obs_next_list)
     act_np = np.concatenate(act_list)
+    # preprocess actions: map toggle (5) to drop (4) just for the model training --> don't forget to change it back during policy training
     act_np[act_np == 5] = 4  
     rew_np = np.concatenate(rew_list)
     done_np = np.concatenate(done_list)
@@ -458,6 +477,47 @@ def sample_keydoor_pref(
         [info_aug[i] for i in idx]
     )
 
+def filter_keydoor_only(env, obs, obs_next, act, rew, done, info, move_keep_ratio=0.2):
+    """
+    保留与 key/door 有关的交互行为，丢弃大部分 random move。
+    - keydoor: pickup / toggle / carrying_key=True
+    - move: 其他动作，仅保留一定比例
+    """
+    num = obs.shape[0]
+    flat_act = act.reshape(num)
+
+    # 关键动作（key, door交互）
+    KEYDOOR_ACTIONS = [env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
+
+    is_keydoor = np.zeros(num, dtype=bool)
+    for a in KEYDOOR_ACTIONS:
+        is_keydoor |= (flat_act == a)
+
+    # carrying key 的步骤也保留
+    is_keydoor |= np.array([i.get("carrying_key", False) for i in info])
+
+    # Movement action → 剩余的全是移动
+    move_idx = np.where(~is_keydoor)[0]
+    keep_move = np.random.rand(len(move_idx)) < move_keep_ratio
+    move_keep_idx = move_idx[keep_move]
+
+    # 保留的关键交互
+    keydoor_idx = np.where(is_keydoor)[0]
+
+    # 合并最终保留的 index
+    final_idx = np.concatenate([keydoor_idx, move_keep_idx])
+    np.random.shuffle(final_idx)
+
+    return (
+        obs[final_idx],
+        obs_next[final_idx],
+        act[final_idx],
+        rew[final_idx],
+        done[final_idx],
+        [info[i] for i in final_idx]
+    )
+
+
 @hydra.main(version_base=None, config_path = str(WORLD_MODEL_PATH / "config"), config_name="config")
 def data_collect(cfg: DictConfig):
     hparam = cfg.env
@@ -467,7 +527,7 @@ def data_collect(cfg: DictConfig):
     env = FullyObsWrapper(CustomMiniGridEnv(txt_file_path=hparam.env_path, 
                                         custom_mission="Find the key and open the door.",
                                         max_steps=10000, render_mode=mode))
-    obs, obs_next, act,rew, done = run_env(env, hparam, wandb_run=None, save_img=False)
+    obs, obs_next, act,rew, done = run_env(env, hparam, log_name="train", wandb_run=None, save_img=False)
     save_experiments(cfg.env,obs,obs_next, act, rew, done)
     env.close()
 
@@ -477,15 +537,15 @@ def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=Fals
     obs, obs_next, act, rew, done, info = run_env_multiprocess(env, hparam, wandb_run, save_img=save_img)
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
-def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000):
-    hparam = cfg
+def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_steps=10000):
+    hparam = cfg.copy()
     original_episodes = hparam.env.collect.episodes
     obs = env.reset()[0]
     obs_layout = obs['image']
-    if np.any(obs_layout[:, :, 0] == 5) or np.any(obs_layout[:, :, 0] == 4):
-        key_door = True
-    else:
-        key_door = False
+    # if np.any(obs_layout[:, :, 0] == 5) or np.any(obs_layout[:, :, 0] == 4):
+    #     key_door = True
+    # else:
+    #     key_door = False
     # 初始化数据缓存
     obs_all, obsn_all, act_all, rew_all, done_all, info_all = [], [], [], [], [], []
     total_steps = 0
@@ -493,7 +553,7 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000)
 
     while total_steps < max_steps:
         print(f"Round {round_idx+1}, collecting {hparam.env.collect.episodes} episodes...")
-        obs, obs_next, act, rew, done, info = run_env(env, hparam, wandb_run, save_img=save_img)
+        obs, obs_next, act, rew, done, info = run_env(env, hparam, wandb_run, log_name, save_img=save_img)
 
         # if key_door:
         #     print("Applying key-door augmentation...")
@@ -528,6 +588,19 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, max_steps=10000)
     rew_all = np.concatenate(rew_all, axis=0)
     done_all = np.concatenate(done_all, axis=0)
     info_all = np.concatenate(info_all, axis=0)
+
+    # obs_all, obsn_all, act_all, rew_all, done_all, info_all = \
+    # filter_keydoor_only(
+    #     env=env,
+    #     obs=obs_all,
+    #     obs_next=obsn_all,
+    #     act=act_all,
+    #     rew=rew_all,
+    #     done=done_all,
+    #     info=info_all,
+    #     move_keep_ratio=0.3  # 可调节保留多少移动行为
+    # )
+
 
     print(f"Final data shape: {obs_all.shape}")
     save_experiments(cfg.env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)
