@@ -103,6 +103,7 @@ def run(cfg: DictConfig):
             support.add_into_learning_buffer(env_layout, wm_loss, samples, learning_buffer)
 
         elif decision == 0:
+            print("+++++++++++ Generating new env +++++++++++")
             cfg.attention_model.freeze_weight = False
             env, env_layout = support.generate_env_from_generator(
                             cfg, env_database[step], file_dir
@@ -120,6 +121,7 @@ def run(cfg: DictConfig):
             support.add_into_learning_buffer(env_layout, wm_loss, samples, learning_buffer)
 
         elif decision == 1:
+            print("+++++++++++ Using env from learning buffer +++++++++++")
             cfg.attention_model.freeze_weight = False
             # load the env from the learning buffer
             env, env_string = support.load_env_from_buffer(learning_buffer)
@@ -151,8 +153,8 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0:
-            rows = 12
-            cols = 12
+            rows = 15
+            cols = 15
             num_maps = 3
             final_task_set = support.generate_final_task_set(rows, cols, num_maps, 
                                 wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 

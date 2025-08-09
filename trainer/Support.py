@@ -196,16 +196,13 @@ class Support:
         return env
     
     def collect_data_trainer(self, env, wandb_run, validate, save_img, log_name, max_steps):
+        cfg_local = copy.deepcopy(self.cfg)
         if validate:
-            # just select small amount of data for validation
-            self.cfg.env.collect.episodes = 20
-            if log_name == 'mini_task':
-                save_img = False
-            else:
-                save_img = True
-        if not os.path.exists(self.cfg.env.collect.data_save_path):
-            data_collect_api(self.cfg, env, wandb_run, save_img, log_name, max_steps=max_steps)
-    
+            cfg_local.env.collect.episodes = 20
+            save_img = (log_name != 'mini_task')
+        if not os.path.exists(cfg_local.env.collect.data_save_path):
+            data_collect_api(cfg_local, env, wandb_run, save_img, log_name, max_steps=max_steps)
+        
     def decision_model(self):
         return random.choice([0, 1])
     # def save_data_to_buffer(self, data):        

@@ -17,6 +17,7 @@ import hydra
 from omegaconf import DictConfig
 import numpy as np
 from multiprocessing import Pool, get_context
+import copy
 
 def visualize_env(env, cfg: DictConfig, save_img=False):
     env.reset()[0]
@@ -538,7 +539,7 @@ def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=Fals
     save_experiments(cfg.env,obs,obs_next, act, rew, done, info)
 
 def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_steps=10000):
-    hparam = cfg.copy()
+    hparam = copy.deepcopy(cfg)
     original_episodes = hparam.env.collect.episodes
     obs = env.reset()[0]
     obs_layout = obs['image']
