@@ -4,7 +4,7 @@ from minigrid_custom_env import CustomMiniGridEnv
 from minigrid.wrappers import FullyObsWrapper
 import torch
 import numpy as np
-from PPO import PPO
+from modelBased.PPO import PPO
 import hydra
 from datetime import datetime
 from modelBased.common import utils
