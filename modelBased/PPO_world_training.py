@@ -7,7 +7,7 @@ import numpy as np
 from PPO import PPO
 import hydra
 from datetime import datetime
-from common import utils
+from modelBased.common import utils
 
 from omegaconf import DictConfig, OmegaConf 
 import AttentionWM_support
