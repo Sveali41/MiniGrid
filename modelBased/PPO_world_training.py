@@ -1,5 +1,5 @@
 import sys
-from common.utils import PROJECT_ROOT
+from modelBased.common.utils import PROJECT_ROOT
 from minigrid_custom_env import CustomMiniGridEnv
 from minigrid.wrappers import FullyObsWrapper
 import torch
