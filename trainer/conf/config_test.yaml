@@ -18,7 +18,7 @@ training_generator:
   dynamic_objects: [8, 4, 5]
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
-  use_wandb: False
+  use_wandb: True
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500_kd.pkl
   learning_buffer_size: 25000 # 5000
   learning_buffer_threshold: 0.0001
@@ -55,7 +55,7 @@ attention_model:
   valid_values_obj: [1, 2, 4, 5, 8, 10]                                                             
   valid_values_color: [0, 1, 5]
   valid_values_state: [0, 1, 2, 3]
-  use_wandb: false
+  use_wandb: True
 
   # freeze weights
   freeze_weight: False  # 置true 会加载权重，不会训练模型，用于验证
