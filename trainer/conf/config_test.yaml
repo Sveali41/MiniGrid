@@ -18,7 +18,7 @@ training_generator:
   dynamic_objects: [8, 4, 5]
   # map_element: {'W': 0, 'E': 1, 'D': 2, 'G': 3, 'K': 4, 'Y': 5}
   env_path: ${oc.env:TRAINER_PATH}/level/level.txt
-  use_wandb: False
+  use_wandb: True
   elites_path: ${oc.env:GENERATOR_PATH}/data/grid500_kd.pkl
   learning_buffer_size: 25000 # 5000
   learning_buffer_threshold: 0.0001
