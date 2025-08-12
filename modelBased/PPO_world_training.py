@@ -10,11 +10,11 @@ from datetime import datetime
 from modelBased.common import utils
 
 from omegaconf import DictConfig, OmegaConf 
-import AttentionWM_support
-import Embedding_support
-import MLP_support
+import modelBased.AttentionWM_support
+import modelBased.Embedding_support
+import modelBased.MLP_support
 import wandb
-from PPO import preprocess_observation 
+from modelBased.PPO import preprocess_observation 
 import time
 
 
