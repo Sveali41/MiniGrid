@@ -11,7 +11,6 @@ from . import Embedding_support
 from . import MLP_support
 import pandas as pd
 
-    
 class AttentionWorldModel(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
@@ -54,6 +53,8 @@ class AttentionWorldModel(pl.LightningModule):
             utils.load_model_weight(self.model, hparams.model_save_path)
         self.loss = nn.MSELoss() # nn.SmoothL1Loss()
         self.visual_func = utils.Visualization(hparams)
+        self.save_hyperparameters(hparams)
+
 
     def save_old_params(self):
         """Save current model parameters for EWC, moved to model's device."""
@@ -136,6 +137,7 @@ class AttentionWorldModel(pl.LightningModule):
         all_f = torch.cat([f.flatten() for f in fisher.values()])
         print(f"[Fisher] mean={all_f.mean():.3e}, max={all_f.max():.3e}, min={all_f.min():.3e}")
         return fisher
+    
 
     def ewc_loss(self, lambda_ewc=10):
         if self.fisher is None or self.old_params is None:
@@ -161,6 +163,29 @@ class AttentionWorldModel(pl.LightningModule):
         loss = {'loss_obs':loss_obs}
         return loss
     
+
+    def loss_function_weight(self, next_observations_predict, next_observations_true):
+        # 变化掩码：只要该像素任一通道非 0，就算变化
+        change_mask = (next_observations_true.abs() > 1e-6).any(dim=1, keepdim=True)  # (B,1,H,W)
+
+        # 基础逐像素 MSE（注意 reduction='none' 保持形状）
+        base = F.mse_loss(
+            next_observations_predict,
+            next_observations_true,
+            reduction='none'   # 保持 (B,C,H,W)
+        )
+
+        # 权重矩阵：默认 1.0，变化处加权
+        change_mask_full = change_mask.expand_as(base)   # (B,C,H,W)
+        w = torch.ones_like(base)
+        w[change_mask_full] = 5.0  # 变化处 ×5
+
+        # 最终加权 MSE
+        loss = (base * w).mean()
+
+        return {"loss_obs": loss}
+
+
     def configure_optimizers(self):
         params = [p for p in self.parameters() if p.requires_grad]
         optimizer = optim.Adam(params, lr=self.lr, betas=(0.9, 0.999), eps=1e-6, weight_decay=self.weight_decay)
@@ -204,7 +229,7 @@ class AttentionWorldModel(pl.LightningModule):
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
 
-        loss = self.loss_function(obs_pred, obs_next)
+        loss = self.loss_function_weight(obs_pred, obs_next)
 
         # 计算 EWC 正则项，并加入主损失
         ewc_loss_tensor = self.ewc_loss(self.lambda_ewc)
@@ -215,9 +240,9 @@ class AttentionWorldModel(pl.LightningModule):
         self.log("train/ewc_loss", ewc_loss_tensor)
         self.log("train/loss_total", loss_total)
 
-        if self.global_step % 1000 == 0:
-            print(f"[Step {self.global_step}] loss_obs: {loss['loss_obs'].item():.6f}, "
-                  f"ewc_loss: {ewc_loss_tensor.item():.6f}, total: {loss_total.item():.6f}")
+        # if self.global_step % 1000 == 0:
+        #     print(f"[Step {self.global_step}] loss_obs: {loss['loss_obs'].item():.6f}, "
+        #           f"ewc_loss: {ewc_loss_tensor.item():.6f}, total: {loss_total.item():.6f}")
 
 
         if self.old_params is not None:
@@ -232,7 +257,8 @@ class AttentionWorldModel(pl.LightningModule):
         #     self.visual_func.visualize_attention(obs, act, attentionWeight, next, pre, self.step_counter, info)
 
         return loss_total
-
+    
+   
     def validation_step(self, batch, batch_idx):
         obs, act, obs_next, info = self.preprocess_batch(batch)
         obs_pred, attention_weight = self(obs, act, info)

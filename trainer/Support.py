@@ -204,8 +204,8 @@ class Support:
             data_collect_api(cfg_local, env, wandb_run, save_img, log_name, max_steps=max_steps)
         
     def decision_model(self):
-        return random.choice([0, 1])
-    # def save_data_to_buffer(self, data):        
+        return random.choices([0, 1], weights=[0.35, 0.65])[0]
+    # def save_data_to_buffer(self, data):
     #     pass
 
     def load_env_from_buffer(self, learning_buffer):
@@ -357,7 +357,7 @@ class Support:
             else:
                 save_img = False
             env = self.wrap_env(torch.tensor(final_task_set[final_task]).unsqueeze(0))
-            self.collect_data_from_env(env, wandb_run, validate=False, save_img=save_img, log_name="final_task", max_steps=1e4)
+            self.collect_data_from_env(env, wandb_run, validate=True, save_img=save_img, log_name="final_task", max_steps=1e4)
             loss = self.validate_world_model(cfg, old_params=None, fisher=None, env_layout=final_task)
             loss_set.append(loss[0]['avg_val_loss_wm'])
         avg_loss = sum(loss_set) / len(loss_set)

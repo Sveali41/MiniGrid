@@ -319,16 +319,29 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
                 info['carrying_key'] = True
             else:
                 info['carrying_key'] = False
-            # # check the data
+            # check the data
             # if not has_carried_key_this_episode and info['carrying_key']:
             #     tqdm.write(f"[Episode {episodes}] First time carrying key at step {step_in_episode}! Action: {act}")
 
             #     obs_diff = obs_next['image'].astype(int) - obs['image'].astype(int)
             #     tqdm.write(f"obs_next - obs (nonzero count): {obs_diff}")
-                # 可选：如果图像小，可以直接打印出差值矩阵
-                # tqdm.write(f"Diff:\n{obs_diff}")
+            #     # 可选：如果图像小，可以直接打印出差值矩阵
+            #     # tqdm.write(f"Diff:\n{obs_diff}")
 
-                has_carried_key_this_episode = True
+            #     has_carried_key_this_episode = True
+            # before = obs['image'].astype(int)
+            # after = obs_next['image'].astype(int)
+
+            # # Mask where door changed from closed (4,4,2) to open (4,4,0)
+            # mask = np.all(before == (4, 4, 2), axis=-1) & np.all(after == (4, 4, 0), axis=-1)
+
+            # if np.any(mask):
+            #     coords = np.argwhere(mask)  # (row, col) positions
+            #     tqdm.write(
+            #         f"[Episode {episodes}] Door opened at step {step_in_episode}! "
+            #         f"Action: {act}, Position(s): {coords.tolist()}"
+            #     )
+
 
             # visual_func.visualize_single_state(obs_next['image'], act, info, ep=episodes, index=index,save_flag=True)
 
@@ -356,8 +369,6 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
                 info_list.pop()
                 episodes += 1
                 pbar.update(1)
-                if episodes % 100 == 0:
-                    tqdm.write(f"Episode {episodes}")
                 obs = env.reset()[0]
                 info_list.append([{'carrying_key': False}])  
                 has_carried_key_this_episode = False  # 重置本轮状态
@@ -518,6 +529,75 @@ def filter_keydoor_only(env, obs, obs_next, act, rew, done, info, move_keep_rati
         [info[i] for i in final_idx]
     )
 
+def _keydoor_mask(env, obs, obs_next, act, info, require_changed=True):
+    N = obs.shape[0]
+    flat_act = act.reshape(N)
+
+    A_PICKUP = env.unwrapped.actions.pickup
+    A_TOGGLE = env.unwrapped.actions.toggle
+
+    is_kd = (flat_act == A_PICKUP) | (flat_act == A_TOGGLE)
+    carry_key = np.array([bool(i.get("carrying_key", False)) for i in (list(info) if not isinstance(info, list) else info)])
+    is_kd |= carry_key
+
+    if require_changed:
+        changed = np.any(obs != obs_next, axis=tuple(range(1, obs.ndim)))
+        is_kd &= changed
+
+    return is_kd
+
+
+def downsample_moves_only(
+    env,
+    obs, obs_next, act, rew, done, info,
+    move_keep_ratio=0.35,     # 仅对“非 key/door”样本随机保留这部分比例
+    require_changed=True,     # 只把真正改变状态的样本视为 key/door
+    min_keep_moves=1,         # 至少保留这么多移动样本，防止空
+    shuffle=True
+):
+    """
+    downsampling the data which is just moving around,
+    to improving the training of the interact with key-door info
+    """
+    # 统一 info 为 list
+    info_list = info if isinstance(info, list) else list(info)
+
+    is_keydoor = _keydoor_mask(env, obs, obs_next, act, info_list, require_changed=require_changed)
+    kd_idx  = np.where(is_keydoor)[0]
+    mov_idx = np.where(~is_keydoor)[0]
+
+    # 若没有 key/door 样本（例如 Empty），直接按比例下采移动；否则仅对 mov 下采
+    if kd_idx.size == 0:
+        keep_mask = np.random.rand(mov_idx.size) < move_keep_ratio
+        mov_keep_idx = mov_idx[keep_mask]
+        if mov_keep_idx.size < min_keep_moves:
+            mov_keep_idx = mov_idx[:min(mov_idx.size, max(min_keep_moves, 1))]
+        final_idx = mov_keep_idx
+    else:
+        keep_mask = np.random.rand(mov_idx.size) < move_keep_ratio
+        mov_keep_idx = mov_idx[keep_mask]
+        if mov_keep_idx.size < min_keep_moves:
+            extra = mov_idx[:min(mov_idx.size, max(min_keep_moves - mov_keep_idx.size, 0))]
+            mov_keep_idx = np.unique(np.concatenate([mov_keep_idx, extra]))
+        final_idx = np.concatenate([kd_idx, mov_keep_idx])
+
+    if final_idx.size == 0:
+        # 兜底：至少保留一条
+        final_idx = np.array([0])
+
+    if shuffle:
+        np.random.shuffle(final_idx)
+
+    obs_out   = obs[final_idx]
+    obsn_out  = obs_next[final_idx]
+    act_out   = act[final_idx]
+    rew_out   = rew[final_idx]
+    done_out  = done[final_idx]
+    info_out  = [info_list[i] for i in final_idx]
+
+    return obs_out, obsn_out, act_out, rew_out, done_out, info_out
+
+
 
 @hydra.main(version_base=None, config_path = str(WORLD_MODEL_PATH / "config"), config_name="config")
 def data_collect(cfg: DictConfig):
@@ -601,7 +681,19 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
     #     info=info_all,
     #     move_keep_ratio=0.3  # 可调节保留多少移动行为
     # )
-
+    # obs_all, obsn_all, act_all, rew_all, done_all, info_all = downsample_moves_only(
+    # env=env,
+    # obs=obs_all,
+    # obs_next=obsn_all,
+    # act=act_all,
+    # rew=rew_all,
+    # done=done_all,
+    # info=info_all,
+    # move_keep_ratio=0.45,    # 调 0.2~0.6
+    # require_changed=True,    # 仅把真正改变状态的交互当 key/door
+    # min_keep_moves=50,
+    # shuffle=True
+    # )
 
     print(f"Final data shape: {obs_all.shape}")
     save_experiments(cfg.env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)

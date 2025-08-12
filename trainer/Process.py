@@ -74,7 +74,6 @@ def run(cfg: DictConfig):
             )
 
             cfg.attention_model.freeze_weight = False
-
             support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run if use_wandb else None, save_img = save_img, log_name= 'mini_task', max_steps=3e4) 
             cur_old_params, cur_fisher = support.train_world_model(cfg, old_params, fisher, env_layout=None, replay_data=replay_data)
             old_params, fisher = cur_old_params, cur_fisher
@@ -153,8 +152,8 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0:
-            rows = 15
-            cols = 15
+            rows = 12
+            cols = 12
             num_maps = 3
             final_task_set = support.generate_final_task_set(rows, cols, num_maps, 
                                 wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 

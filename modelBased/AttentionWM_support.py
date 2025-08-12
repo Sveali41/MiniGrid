@@ -58,19 +58,22 @@ class AttentionModule(nn.Module):
         else:
             self.input_channel = grid_shape[0]
             self.action_fc = nn.Linear(1, embed_dim)
-
+ 
         self.mask_size = mask_size
         self.y, self.x = mask_size // 2, mask_size // 2
         self.conv1 = nn.Conv2d(self.input_channel, embed_dim, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(embed_dim)
+        self.bn1 = nn.GroupNorm(8, embed_dim)
         self.conv2 = nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(embed_dim)
+        self.bn2 = nn.GroupNorm(8, embed_dim)
         self.relu = nn.ReLU(inplace=True)
+        self.to_gamma_beta = nn.Linear(embed_dim, 2 * embed_dim)
 
         # 2. 展平操作，将 (B, embed_dim, H, W) 展平为 (B, embed_dim, H*W)
         self.flatten = nn.Flatten(2)
         # 位置编码：为每个 patch 学习一个位置编码，形状为 (1, height*width, embed_dim)
-        self.pos_embedding = nn.Parameter(torch.randn(1, mask_size * mask_size, embed_dim))
+        # self.pos_embedding = nn.Parameter(torch.randn(1, mask_size * mask_size, embed_dim))
+        self.pos_embedding = nn.Parameter(torch.zeros(1, mask_size * mask_size, embed_dim))
+        nn.init.trunc_normal_(self.pos_embedding, std=0.02)  # 更稳的初始化
 
         # 3. 动作嵌入：将离散动作编码为与 embed_dim 相同的向量
         self.fuse_fc = nn.Linear(embed_dim * 2, embed_dim)
@@ -82,6 +85,7 @@ class AttentionModule(nn.Module):
         ])
         self.fc = nn.Linear(embed_dim, 3)
         self.act_key_fc = nn.Linear(embed_dim * 2, embed_dim)
+
 
     def forward(self, state, action, info):
         orginal_dim = state.ndim
@@ -124,6 +128,7 @@ class AttentionModule(nn.Module):
         # 3. 添加位置编码
         x = x + self.pos_embedding  # (B, 25, embed_dim)
 
+
         # 4. 融合动作信息
         # 假设 action 为离散变量，shape (B,)
         # 将 action_emb 扩展至 (B, 25, embed_dim)（对每个 token都添加相同的动作信息）
@@ -143,12 +148,4 @@ class AttentionModule(nn.Module):
         if orginal_dim == 3:
             x = x.squeeze(0)
         return x, attn_weights
-    
-
-    
-
-
-
-    
-
-
+        
