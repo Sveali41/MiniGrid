@@ -1,8 +1,8 @@
 from data.env_dataset_support import *
 
 if __name__ == "__main__":
-    rows = 10
-    cols = 10
+    rows = 9
+    cols = 9
     num_maps = 500
     task_dict = generate_envs_dataset(
                 rows, cols, num_maps,
