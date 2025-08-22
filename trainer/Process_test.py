@@ -44,7 +44,7 @@ def run(cfg: DictConfig):
             env, env_layout = support.generate_env_from_generator(
                 cfg, env_database[step], file_dir
             )
-            cfg.attention_model.freeze_weight = False
+            cfg.attention_model.freeze_weight = True
             main_run = None
             if not os.path.exists(cfg.env.collect.data_save_path):
                 support.collect_data_from_env(env, validate=cfg.attention_model.freeze_weight, wandb_run=main_run, save_img = save_img, log_name= 'mini_task', max_steps=3e4) 

@@ -73,68 +73,99 @@ class WMRLDataset(Dataset):
 
     @func_set_timeout(1000)
     def make_data(self, loaded, replay_data=None):
+        import numpy as np
+        rng = np.random.default_rng()  # 统一随机源
+
+        # ===== 基础取数 =====
         mask_size = self.hparams.attention_mask_size
-        env_type = self.hparams.env_type
-        B, row, col, channel = loaded['a'].shape
-        obs = loaded['a']
-        obs_next = loaded['b']
-        act = loaded['c']
-        if env_type == 'with_obj':
-            info = loaded['f']
+        env_type  = self.hparams.env_type
+        obs, obs_next, act = loaded['a'], loaded['b'], loaded['c']
+        info = loaded.get('f', None) if env_type == 'with_obj' else None
 
-        if replay_data is not None:
-            # If replay data is provided, merge it with the loaded data
-            obs = np.concatenate((obs, replay_data['obs']), axis=0)
-            obs_next = np.concatenate((obs_next, replay_data['obs_next']), axis=0)
-            act = np.concatenate((act, replay_data['act']), axis=0)
-            if env_type == 'with_obj':
-                info = np.concatenate((info, replay_data.get('info', np.empty((0, 0)))), axis=0) if 'info' in replay_data else info
-            print(f"Adding replay buffer with {len(replay_data['obs'])} samples.")
-        
+        current_n = len(obs)
+        assert current_n == len(obs_next) == len(act), "[BUG] Current lengths inconsistent!"
+
+        # ===== (1) 控制 replay 占比：replay ≤ new =====
+        # 从 hparams 读取可选的比例配置；默认 0.5
+        replay_frac = float(getattr(self.hparams, "replay_frac", 0.5))
+        replay_frac = max(0.0, min(1.0, replay_frac))  # clamp 到 [0,1]
+        max_replay = int(current_n * replay_frac)
+
+        if replay_data is not None and 'obs' in replay_data and replay_data['obs'] is not None:
+            R = len(replay_data['obs'])
+            # 只抽取不超过 max_replay 的样本，避免“replay > new”
+            if R > max_replay and max_replay > 0:
+                idx = rng.choice(R, size=max_replay, replace=False)
+                r_obs      = replay_data['obs'][idx]
+                r_obs_next = replay_data['obs_next'][idx]
+                r_act      = replay_data['act'][idx]
+                r_info     = (replay_data['info'][idx]
+                            if (env_type == 'with_obj' and 'info' in replay_data and replay_data['info'] is not None)
+                            else None)
+            else:
+                r_obs, r_obs_next, r_act = replay_data['obs'], replay_data['obs_next'], replay_data['act']
+                r_info = (replay_data['info']
+                        if (env_type == 'with_obj' and 'info' in replay_data and replay_data['info'] is not None)
+                        else None)
+
+            # 拼接
+            obs      = np.concatenate([obs,      r_obs     ], axis=0)
+            obs_next = np.concatenate([obs_next, r_obs_next], axis=0)
+            act      = np.concatenate([act,      r_act     ], axis=0)
+            if env_type == 'with_obj' and info is not None and r_info is not None:
+                info = np.concatenate([info, r_info], axis=0)
+
+            # 统一洗牌（很重要：避免“当前在前、replay 在后”的顺序偏置）
+            N = len(obs)
+            perm = rng.permutation(N)
+            obs, obs_next, act = obs[perm], obs_next[perm], act[perm]
+            if env_type == 'with_obj' and info is not None and len(info) == N:
+                info = info[perm]
+
+            print(f"Adding replay buffer with {min(R, max_replay)} samples (capped by ratio {replay_frac:.2f}).")
+
+        # ===== (2) 生成 Δ 并做数值稳定 =====
         if self.hparams.data_type == 'norm':
-            obs = normalize_obs(obs, self.obs_norm_values)
-            obs_next = normalize_obs(obs_next, self.obs_norm_values)
-            act = act.astype(np.float32) / self.act_norm_values 
-            obs_delta = obs_next.astype(np.float32)-obs.astype(np.float32)
-
+            obs_f      = normalize_obs(obs,      self.obs_norm_values).astype(np.float32)
+            obs_next_f = normalize_obs(obs_next, self.obs_norm_values).astype(np.float32)
+            act_f      = act.astype(np.float32) / self.act_norm_values
+            obs_delta  = (obs_next_f - obs_f).astype(np.float32)
 
         elif self.hparams.data_type == 'discrete':
-            # obs[:,0,:,:] = utils.replace_values(obs[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            # obs[:,1,:,:] = utils.replace_values(obs[:,1,:,:], np.array([5]), np.array([2]))
+            # 用 int16 做差，再转回 float32 做 MSE，防止梯度爆/精度损失
+            obs_delta = (obs_next.astype(np.int16) - obs.astype(np.int16)).astype(np.float32)
+            # 若你的离散网格相邻变化为主，建议裁剪到 [-1, 1]（可配开关）
+            if getattr(self.hparams, "clip_discrete_delta", True):
+                np.clip(obs_delta, -1, 1, out=obs_delta)
+            obs_f = obs  # 保留原离散值以便可视化/调试
+            act_f = act.astype(np.int64)
 
-            # obs_next[:,0,:,:] = utils.replace_values(obs_next[:,0,:,:], np.array([1,2,8,10]), np.array([0, 1, 2, 3]))
-            # obs_next[:,1,:,:] = utils.replace_values(obs_next[:,1,:,:], np.array([5]), np.array([2]))
-            obs_delta = obs_next.astype(np.int16) - obs.astype(np.int16)
         else:
             raise ValueError(f"Invalid data type: {self.hparams.data_type}")
 
-        # if mask_size > 0:
-            # agent_position_yx = utils.get_agent_position(obs)
-            # obs_delta = utils.extract_masked_state(obs_delta, mask_size, agent_position_yx)
-
-        if env_type == 'with_obj':
-            data = {
-                'obs': obs,
-                'obs_next': obs_delta, # obs_next is the delta between the current state and the next state
-                'act': act,
-                'info': info,
-            }
-        else:
-            data = {
-                'obs': obs,
-                'obs_next': obs_delta,  # obs_next is the delta between the current state and the next state
-                'act': act,
-            }
+        # ===== (3) 打包 =====
+        data = {'obs': obs_f, 'obs_next': obs_delta, 'act': act_f}
+        if env_type == 'with_obj' and info is not None:
+            data['info'] = info
         return data
-        
+
+            
 
 
 
     def __len__(self):
-        return len(self.data['obs'])  # Assuming 'obs' is the main reference for dataset length
+        lengths = [len(self.data[k]) for k in self.data]
+        if not all(l == lengths[0] for l in lengths):
+            print(f"[BUG] Inconsistent lengths! { {k: len(self.data[k]) for k in self.data} }")
+        return lengths[0]  # 以第一个 key 的长度为准
 
     def __getitem__(self, idx):
-        return {key: self.data[key][idx] for key in self.data}  # Return a dictionary of all data items
+        try:
+            return {key: self.data[key][idx] for key in self.data}
+        except IndexError as e:
+            print(f"[ERROR] idx={idx}, dataset length={len(self)}")
+            raise e
+
 
 class WMRLDataModule(pl.LightningDataModule):
     def __init__(self, hparams=None, data: Optional[Dict[str, np.ndarray]] = None, replay_data: Optional[Dict[str, np.ndarray]] = None):

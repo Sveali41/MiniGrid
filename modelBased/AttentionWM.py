@@ -11,6 +11,7 @@ from . import Embedding_support
 from . import MLP_support
 import pandas as pd
 
+
 class AttentionWorldModel(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
@@ -22,9 +23,16 @@ class AttentionWorldModel(pl.LightningModule):
         self.visualize_every = hparams.visualize_every
         self.step_counter = 0  
         self.data_type = hparams.data_type
-        self.lambda_ewc = getattr(hparams, "lambda_ewc", 10.0)
-        self.lambda_ewc_min = 1.0
-        self.lambda_ewc_max = 500.0
+        self.ewc_ratio = getattr(hparams, "ewc_ratio", 0.2)           # 目标占比：EWC ≈ 20% * obs_loss；想手动控制就在 yaml 里设为 null
+        self.lambda_ema = getattr(hparams, "lambda_ema", 0.1)         # λ 的 EMA 平滑系数
+        self.lambda_ewc_min = getattr(hparams, "lambda_ewc_min", 1e-4)
+        self.lambda_ewc_max = getattr(hparams, "lambda_ewc_max", 1e3)
+        self.lambda_ewc = float(getattr(hparams, "lambda_ewc", 1.0))
+
+        # 慢速外环（漂移）相关
+        self.warmup_steps = getattr(hparams, "warmup_steps", 100)
+        self.drift_cooldown = getattr(hparams, "drift_cooldown", 200)  # 多久允许调整一次
+        self._last_drift_update_step = -10**9
         self.drift_threshold = getattr(hparams, "drift_threshold", 1e-3)
         self.fisher = 0
         self.old_params = None
@@ -79,79 +87,269 @@ class AttentionWorldModel(pl.LightningModule):
         avg_drift = drift_sum / max(num, 1)
         return avg_drift
 
+    def update_lambda_ewc_by_ratio(self, obs_loss: torch.Tensor, ewc_raw: torch.Tensor, r: float | None):
+        """
+        快速控制器：让 ewc_term ≈ r * obs_loss
+        - r=None 或 r<=0 则不启用（使用固定 self.lambda_ewc）
+        - 使用 EMA 平滑避免抖动，并限制在 [lambda_ewc_min, lambda_ewc_max]
+        """
+        if r is None or r <= 0:
+            return
+        val = ewc_raw.detach()
+        if val.item() <= 0:
+            return
+
+        target_lambda = (r * obs_loss.detach()) / (val + 1e-12)
+        new_lambda = (1 - self.lambda_ema) * self.lambda_ewc + self.lambda_ema * target_lambda.item()
+        self.lambda_ewc = float(torch.clamp(torch.tensor(new_lambda), self.lambda_ewc_min, self.lambda_ewc_max))
 
     def update_lambda_ewc(self, avg_drift: float):
-        # 初始化 drift history 缓存
+        """
+        慢速外环：基于参数漂移 avg_drift 的 λ 调整（与快速占比控制器互补）
+        - warmup 自动学习 drift_threshold（当 hparams.drift_threshold 为 None 时）
+        - 冷却时间 cooldown：减少与快速控制器的相互干扰
+        - 滞回区间 hysteresis：超出阈值范围才调整
+        - 对数域微调：上下调更平滑，再做 EMA 平滑与边界裁剪
+        """
+        import math
+        import torch
+
+        # —— 保护性默认值（若没设定）——
+        if not hasattr(self, "lambda_ewc"):
+            self.lambda_ewc = float(getattr(self.hparams, "lambda_ewc", 1.0))
         if not hasattr(self, "_drift_values"):
             self._drift_values = []
-            self.warmup_steps = getattr(self.hparams, "warmup_steps", 100)
+        if not hasattr(self, "_last_drift_update_step"):
+            self._last_drift_update_step = -10**9
 
-        # 自动 warmup 阈值
-        if self.drift_threshold is None:
-            self._drift_values.append(avg_drift)
-            if len(self._drift_values) == self.warmup_steps:
-                self.drift_threshold = sum(self._drift_values) / len(self._drift_values)
-                print(f"[Auto-tuned] drift_threshold set to {self.drift_threshold:.6f}")
-        else:
-            # 正常 drift 控制 λ
-            if avg_drift > self.drift_threshold:
-                self.lambda_ewc *= 1.2
-            elif avg_drift < self.drift_threshold / 2:
-                self.lambda_ewc *= 0.9
-            self.lambda_ewc = float(torch.clamp(torch.tensor(self.lambda_ewc), self.lambda_ewc_min, self.lambda_ewc_max))
-        
-        # 日志记录
+        # —— 读超参（允许在 hparams 或实例属性上覆盖）——
+        warmup_steps = getattr(self.hparams, "warmup_steps", getattr(self, "warmup_steps", 100))
+        cooldown = getattr(self.hparams, "drift_cooldown", getattr(self, "drift_cooldown", 200))
+        hi_ratio = getattr(self.hparams, "drift_hi", 1.10)  # 高于阈值 110% 才上调
+        lo_ratio = getattr(self.hparams, "drift_lo", 0.70)  # 低于阈值 70% 才下调
+        up_step = getattr(self.hparams, "drift_up_step", 0.10)  # 对数域上调步长
+        down_step = getattr(self.hparams, "drift_down_step", 0.05)  # 对数域下调步长
+        lam_min = getattr(self.hparams, "lambda_ewc_min", getattr(self, "lambda_ewc_min", 1e-4))
+        lam_max = getattr(self.hparams, "lambda_ewc_max", getattr(self, "lambda_ewc_max", 1e3))
+        lam_ema = getattr(self.hparams, "lambda_ema", getattr(self, "lambda_ema", 0.1))
+
+        # —— 记录漂移日志 —— 
         self.log("train/avg_param_drift", avg_drift)
-        self.log("train/lambda_ewc", self.lambda_ewc)
+
+        # —— warmup：若阈值为 None，则用前 warmup_steps 个漂移的均值做阈值 —— 
+        if getattr(self, "drift_threshold", None) is None:
+            self._drift_values.append(float(avg_drift))
+            if len(self._drift_values) >= warmup_steps:
+                self.drift_threshold = float(sum(self._drift_values) / len(self._drift_values))
+                print(f"[Auto-tuned] drift_threshold set to {self.drift_threshold:.6f}")
+            # warmup 期间不调 λ
+            return
+
+        # —— 冷却：避免频繁与快速控制器打架 —— 
+        if self.global_step - self._last_drift_update_step < cooldown:
+            return
+
+        # —— 滞回区间：超过才调 —— 
+        hi = self.drift_threshold * hi_ratio
+        lo = self.drift_threshold * lo_ratio
+
+        lam = float(max(self.lambda_ewc, lam_min))
+        lam_log = math.log(lam)
+        changed = False
+
+        if avg_drift > hi:
+            lam_log += up_step
+            changed = True
+        elif avg_drift < lo:
+            lam_log -= down_step
+            changed = True
+
+        if changed:
+            lam_new = math.exp(lam_log)
+            # 边界裁剪
+            lam_new = float(torch.clamp(torch.tensor(lam_new), lam_min, lam_max))
+            # EMA 平滑
+            self.lambda_ewc = (1.0 - lam_ema) * self.lambda_ewc + lam_ema * lam_new
+            # 更新时间戳
+            self._last_drift_update_step = self.global_step
 
     def load_old_params(self, old_params):
         device = next(self.parameters()).device
         self.old_params = {k: v.to(device) for k, v in old_params.items()}
 
-    def compute_fisher(self, dataloader, samples=1000, scale_factor=10):
-        fisher = {n: torch.zeros_like(p) for n, p in self.named_parameters() if p.requires_grad}
-        self.eval()
+    # def compute_fisher(self, dataloader, samples, scale_factor):
+    #     fisher = {n: torch.zeros_like(p) for n, p in self.named_parameters() if p.requires_grad}
+    #     self.eval()
+    #     device = next(self.parameters()).device
+    #     count = 0
+    #     for i, batch in enumerate(dataloader):
+    #         if count >= samples:
+    #             break
+    #         self.zero_grad()
+
+    #         obs, act, obs_next, info, obs_masked = self.preprocess_batch(batch)
+    #         obs = obs.to(device).float()
+    #         act = act.to(device)
+    #         obs_next = obs_next.to(device).float()
+    #         obs_pred, _ = self(obs, act, info)
+    #         loss = scale_factor * self.loss_function_weight(obs_pred, obs_next, obs_masked)['loss_obs']
+    #         loss.backward(retain_graph=False)
+    #         for n, p in self.named_parameters():
+    #             if p.grad is not None:
+    #                 fisher[n] += p.grad.detach().pow(2)
+    #         count += 1
+    #     for n in fisher:
+    #         fisher[n] /= count
+    #     # for k in fisher:
+    #     #     fisher[k] = torch.sqrt(fisher[k] + 1e-8)
+    #     #     fisher[k] *= 5
+    #     # Fisher normalization by mean
+    #     for k in fisher:
+    #         mean_val = fisher[k].mean()
+    #         fisher[k] = scale_factor * fisher[k] / (mean_val + 1e-8)
+
+    #     all_f = torch.cat([f.flatten() for f in fisher.values()])
+    #     print(f"[Fisher] mean={all_f.mean():.3e}, max={all_f.max():.3e}, min={all_f.min():.3e}")
+    #     return fisher
+
+    def compute_fisher(self, dataloader, samples, scale_factor):
+        """
+        稳定的对角 Fisher 估计（与原签名兼容）
+        - 不使用 scale_factor（仅保留兼容）
+        - 关闭 AMP，fp32 反传
+        - 对 batch 求“均值”（/count）
+        - 99.9% 分位截断 + 全局均值归一化（mean≈1）
+        """
+        import torch
+        self.eval()  # 固定 Dropout/BN 的行为（注意：BN 统计需要单独处理，见下文）
         device = next(self.parameters()).device
+
+        fisher = {n: torch.zeros_like(p, dtype=torch.float32, device=device)
+                for n, p in self.named_parameters() if p.requires_grad}
+
         count = 0
         for i, batch in enumerate(dataloader):
-            if count >= samples:
+            if count >= int(samples):
                 break
-            self.zero_grad()
 
-            obs, act, obs_next, info = self.preprocess_batch(batch)
-            obs = obs.to(device).float()
-            act = act.to(device)
-            obs_next = obs_next.to(device).float()
-            obs_pred, _ = self(obs, act, info)
-            loss = scale_factor * self.loss_function(obs_pred, obs_next)['loss_obs']
-            loss.backward(retain_graph=False)
+            self.zero_grad(set_to_none=True)
+
+            # === 预处理到 fp32 ===
+            obs, act, obs_next, info, obs_masked = self.preprocess_batch(batch)
+            obs      = obs.to(device, dtype=torch.float32)
+            act      = act.to(device)
+            obs_next = obs_next.to(device, dtype=torch.float32)
+
+            # === 显式关闭 autocast，确保梯度为 fp32 ===
+            with torch.cuda.amp.autocast(enabled=False):
+                pred, _ = self(obs, act, info)
+                loss_obs = self.loss_function_weight(pred, obs_next, obs_masked)['loss_obs']
+
+            loss_obs.backward()
+
+            # === 累积 grad^2 ===
             for n, p in self.named_parameters():
-                if p.grad is not None:
-                    fisher[n] += p.grad.detach().pow(2)
+                if p.requires_grad and p.grad is not None:
+                    g2 = p.grad.detach().float().pow(2)
+                    fisher[n] += g2
+
             count += 1
+
+        if count == 0:
+            raise RuntimeError("compute_fisher: 'samples' 为 0 或 dataloader 为空。")
+
+        # === 对 batch 做均值（/count），不是 /sqrt(count) ===
         for n in fisher:
-            fisher[n] /= count
-        # for k in fisher:
-        #     fisher[k] = torch.sqrt(fisher[k] + 1e-8)
-        #     fisher[k] *= 5
-        all_f = torch.cat([f.flatten() for f in fisher.values()])
-        print(f"[Fisher] mean={all_f.mean():.3e}, max={all_f.max():.3e}, min={all_f.min():.3e}")
+            fisher[n] /= float(count)
+
+        # === 分位数截断（更稳妥的 outlier 处理） ===
+        with torch.no_grad():
+            flat = torch.cat([t.flatten() for t in fisher.values()])
+            q = torch.quantile(flat, 0.999)  # 99.9% 分位
+            for n in fisher:
+                fisher[n].clamp_(max=q.item())
+
+        # === 全局均值归一化（让 mean≈1，便于 lambda_ewc 稳定） ===
+        with torch.no_grad():
+            flat = torch.cat([t.flatten() for t in fisher.values()])
+            mean_val = flat.mean().clamp_min(1e-12)
+            for n in fisher:
+                fisher[n] /= mean_val
+
+            # 诊断
+            flat_norm = flat / mean_val
+            p99 = torch.quantile(flat_norm, 0.99).item()
+            print(f"[Fisher] batches={count}, mean≈1.0, p99={p99:.3e}, max={flat_norm.max().item():.3e}")
+
+        # 放到 CPU 便于后续持久化
+        fisher = {k: v.detach().cpu() for k, v in fisher.items()}
         return fisher
+
+
     
 
-    def ewc_loss(self, lambda_ewc=10):
-        if self.fisher is None or self.old_params is None:
-            return torch.tensor(0.0, device=next(self.parameters()).device)
+    # def ewc_loss(self, lambda_ewc):
+    #     if self.fisher is None or self.old_params is None:
+    #         return torch.tensor(0.0, device=next(self.parameters()).device)
         
-        device = next(self.parameters()).device
-        loss = torch.tensor(0.0, device=device)  
-        for n, p in self.named_parameters():
-            if n in self.fisher and n in self.old_params:
-                fisher = self.fisher[n].to(device)
-                p_old = self.old_params[n].to(device)
-                loss += (fisher * (p - p_old).pow(2)).sum()
+    #     device = next(self.parameters()).device
+    #     loss = torch.tensor(0.0, device=device)  
+    #     for n, p in self.named_parameters():
+    #         if n in self.fisher and n in self.old_params:
+    #             fisher = self.fisher[n].to(device)
+    #             p_old = self.old_params[n].to(device)
+    #             loss += (fisher * (p - p_old).pow(2)).sum()
 
-        return lambda_ewc * loss
+    #     return lambda_ewc * loss
+
+    def set_consolidation(self, old_params: dict, fisher: dict):
+        """
+        安全地设置 EWC 的“锚点”：旧参数 & Fisher（都放 CPU，节省显存）
+        """
+        if old_params is not None:
+            self.old_params = {k: v.detach().cpu().float() for k, v in old_params.items()}
+        else:
+            self.old_params = None
+        if fisher is not None:
+            self.fisher = {k: v.detach().cpu().float() for k, v in fisher.items()}
+        else:
+            self.fisher = None
+
+
+    def ewc_loss(self):
+        """
+        返回“原始 EWC 值”（未乘 lambda_ewc），在 fp32 中计算。
+        这里做了两个稳定化：
+        1) 显式 to(device)+float()，避免半精度参与
+        2) 按参数规模做平均（/count），让尺度与模型大小无关
+        """
+        device = next(self.parameters()).device
+        if self.fisher is None or self.old_params is None:
+            return torch.zeros((), device=device, dtype=torch.float32)
+
+        total = torch.zeros((), device=device, dtype=torch.float32)
+        count = 0
+
+        # 关闭 autocast，确保 fp32
+        import torch.cuda.amp as amp
+        with amp.autocast(enabled=False):
+            for n, p in self.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if n not in self.fisher or n not in self.old_params:
+                    continue
+
+                f = self.fisher[n].to(device=device, dtype=torch.float32)
+                d = (p.float() - self.old_params[n].to(device).float())
+                total = total + (f * d.pow(2)).sum()
+                count += d.numel()
+
+            if count > 0:
+                total = total / count
+
+        return total  # 注意：这里不乘 lambda
+
+
 
     def forward(self, state, action, info):
         next_state_pred, attentionWeight = self.model(state, action, info)
@@ -164,26 +362,39 @@ class AttentionWorldModel(pl.LightningModule):
         return loss
     
 
-    def loss_function_weight(self, next_observations_predict, next_observations_true):
-        # 变化掩码：只要该像素任一通道非 0，就算变化
-        change_mask = (next_observations_true.abs() > 1e-6).any(dim=1, keepdim=True)  # (B,1,H,W)
+    def loss_function_weight(self, next_observations_predict, next_observations_true, obs_masked=None):
+        device = next_observations_predict.device  # 获取模型所在设备（保险起见）
 
-        # 基础逐像素 MSE（注意 reduction='none' 保持形状）
+
+        # 1. 所有通道中任意变化都算作变化（当前已有）
+        change_mask = (next_observations_true.abs() > 1e-6).any(dim=1, keepdim=True)  # (B,1,H,W)
+        if obs_masked is not None:
+            obs_masked = obs_masked.to(device)
+            change_mask = change_mask.to(device)
+
+        # 2. 基础 MSE（不减维度）
         base = F.mse_loss(
             next_observations_predict,
             next_observations_true,
-            reduction='none'   # 保持 (B,C,H,W)
+            reduction='none'   # (B,C,H,W)
         )
 
-        # 权重矩阵：默认 1.0，变化处加权
-        change_mask_full = change_mask.expand_as(base)   # (B,C,H,W)
+        # 3. 初始权重：默认 1，变化位置 ×5
         w = torch.ones_like(base)
-        w[change_mask_full] = 5.0  # 变化处 ×5
+        w[change_mask.expand_as(base)] = 5.0
 
-        # 最终加权 MSE
+        # 4. 如果提供了 obs_masked，额外对门/钥匙区域加权（×3）
+        if obs_masked is not None:
+            combined_mask = obs_masked & change_mask.squeeze(1)  # 同时必须有变化
+
+            # 扩展为所有通道
+            keydoor_mask_full = combined_mask.unsqueeze(1).expand_as(base)  # (B,C,H,W)
+            w[keydoor_mask_full] += 5.0  # 基于已有权重再叠加 +5 → 总共 ×10
+
+        # 5. 最终加权 loss
         loss = (base * w).mean()
-
         return {"loss_obs": loss}
+
 
 
     def configure_optimizers(self):
@@ -212,6 +423,12 @@ class AttentionWorldModel(pl.LightningModule):
         agent_postion_yx_batch = utils.get_agent_position(obs)
         obs_masked = utils.extract_masked_state(obs, self.mask_size, agent_postion_yx_batch)
         obs_next_masked = utils.extract_masked_state(obs_next, self.mask_size, agent_postion_yx_batch)
+
+        # extract positions where objects are located
+        object_map = obs_masked[:, 0]  # 取第0通道 (B,H,W)
+        key_mask = (object_map == 5)
+        door_mask = (object_map == 4)
+        keydoor_mask = key_mask | door_mask  # (B,H,W)
         
         ## visualization
         self.step_counter += 1
@@ -219,49 +436,70 @@ class AttentionWorldModel(pl.LightningModule):
             next_masked = obs_next_masked + obs_masked 
             obs_next_all = obs + obs_next
             self.visual_func.visualize_data(obs, obs_next_all, act, obs_masked, next_masked, info, self.step_counter, agent_postion_yx_batch)
-        return obs_masked, act, obs_next_masked, info
+        return obs_masked, act, obs_next_masked, info, keydoor_mask
 
 
     def training_step(self, batch, batch_idx):
-        obs, act, obs_next, info = self.preprocess_batch(batch, True)
+        # —— 前向 & 主损失 —— #
+        obs, act, obs_next, info, keydoor_mask = self.preprocess_batch(batch, True)
         obs_pred, attentionWeight = self(obs, act, info)
 
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
 
-        loss = self.loss_function_weight(obs_pred, obs_next)
+        loss_dict = self.loss_function_weight(obs_pred, obs_next, keydoor_mask)
+        obs_loss = loss_dict['loss_obs']
 
-        # 计算 EWC 正则项，并加入主损失
-        ewc_loss_tensor = self.ewc_loss(self.lambda_ewc)
-        loss_total = loss['loss_obs'] + ewc_loss_tensor
+        # —— raw EWC（未乘 λ）—— #
+        ewc_raw = self.ewc_loss()
 
-        # --- Logging ---
-        self.log_dict(loss)
-        self.log("train/ewc_loss", ewc_loss_tensor)
-        self.log("train/loss_total", loss_total)
+        # —— 快控制：把 EWC 项对齐到 obs_loss 的固定占比（如 20%）—— #
+        self.update_lambda_ewc_by_ratio(obs_loss, ewc_raw, self.ewc_ratio)
 
-        # if self.global_step % 1000 == 0:
-        #     print(f"[Step {self.global_step}] loss_obs: {loss['loss_obs'].item():.6f}, "
-        #           f"ewc_loss: {ewc_loss_tensor.item():.6f}, total: {loss_total.item():.6f}")
+        # —— 合成总损失 —— #
+        ewc_term = self.lambda_ewc * ewc_raw
+        loss_total = obs_loss + ewc_term
 
+        # —— 统一日志（用标量 tensor 更稳）—— #
+        self.log_dict(loss_dict, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train/ewc_raw", ewc_raw.detach(), on_step=True, on_epoch=True)
+        self.log("train/lambda_ewc", torch.tensor(self.lambda_ewc, device=obs_loss.device),
+                on_step=True, on_epoch=True)
+        self.log("train/ewc_term", ewc_term.detach(), on_step=True, on_epoch=True)
+        self.log("train/loss_total", loss_total.detach(), on_step=True, on_epoch=True)
 
+        if self.global_step % 10000 == 0:
+            print(f"[Step {self.global_step}] "
+                f"loss_obs: {obs_loss.item():.6f}, "
+                f"ewc_raw: {ewc_raw.item():.6f}, "
+                f"lambda: {self.lambda_ewc:.4f}, "
+                f"ewc_term: {ewc_term.item():.6f}, "
+                f"total: {loss_total.item():.6f}")
+
+        # —— 慢速外环（有旧参数时才调；函数内部有 cooldown）—— #
         if self.old_params is not None:
             avg_drift = self.compute_avg_param_drift()
             self.update_lambda_ewc(avg_drift)
 
-        # --- 可视化 ---
-        # self.step_counter += 1
-        # if self.visualizationFlag and self.step_counter % self.visualize_every == 0:
-        #     next = obs_next + obs 
-        #     pre = obs_pred + obs
-        #     self.visual_func.visualize_attention(obs, act, attentionWeight, next, pre, self.step_counter, info)
-
         return loss_total
+
     
    
     def validation_step(self, batch, batch_idx):
-        obs, act, obs_next, info = self.preprocess_batch(batch)
+        obs, act, obs_next, info, _ = self.preprocess_batch(batch)
         obs_pred, attention_weight = self(obs, act, info)
+        # if self.hparams.freeze_weight:
+        #     diff = torch.abs(obs_pred - obs_next)  # (128, 3, 3, 3)
+        #     max_diff_per_group, max_indices = diff.reshape(diff.shape[0], -1).max(dim=1)  
+        #     mask = max_diff_per_group > 0.1
+        #     indices = torch.nonzero(mask, as_tuple=True)[0]
+        #     for idx in indices:
+        #         flat_idx = max_indices[idx].item()
+        #         pred_val = obs_pred[idx].reshape(-1)[flat_idx].item()
+        #         true_val = obs_next[idx].reshape(-1)[flat_idx].item()
+        #         print(f"索引 {idx.item()} 最大差值: {max_diff_per_group[idx].item():.4f}, "
+        #             f"pred={pred_val:.4f}, true={true_val:.4f}")
+  
         if obs_next.dtype != obs_pred.dtype:
             obs_next = obs_next.float()
         loss = self.loss_function(obs_pred, obs_next)

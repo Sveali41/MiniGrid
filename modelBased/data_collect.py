@@ -550,7 +550,7 @@ def _keydoor_mask(env, obs, obs_next, act, info, require_changed=True):
 def downsample_moves_only(
     env,
     obs, obs_next, act, rew, done, info,
-    move_keep_ratio=0.35,     # 仅对“非 key/door”样本随机保留这部分比例
+    move_keep_ratio,     # 仅对“非 key/door”样本随机保留这部分比例
     require_changed=True,     # 只把真正改变状态的样本视为 key/door
     min_keep_moves=1,         # 至少保留这么多移动样本，防止空
     shuffle=True
@@ -670,30 +670,19 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
     done_all = np.concatenate(done_all, axis=0)
     info_all = np.concatenate(info_all, axis=0)
 
-    # obs_all, obsn_all, act_all, rew_all, done_all, info_all = \
-    # filter_keydoor_only(
-    #     env=env,
-    #     obs=obs_all,
-    #     obs_next=obsn_all,
-    #     act=act_all,
-    #     rew=rew_all,
-    #     done=done_all,
-    #     info=info_all,
-    #     move_keep_ratio=0.3  # 可调节保留多少移动行为
-    # )
-    # obs_all, obsn_all, act_all, rew_all, done_all, info_all = downsample_moves_only(
-    # env=env,
-    # obs=obs_all,
-    # obs_next=obsn_all,
-    # act=act_all,
-    # rew=rew_all,
-    # done=done_all,
-    # info=info_all,
-    # move_keep_ratio=0.45,    # 调 0.2~0.6
-    # require_changed=True,    # 仅把真正改变状态的交互当 key/door
-    # min_keep_moves=50,
-    # shuffle=True
-    # )
+    obs_all, obsn_all, act_all, rew_all, done_all, info_all = downsample_moves_only(
+    env=env,
+    obs=obs_all,
+    obs_next=obsn_all,
+    act=act_all,
+    rew=rew_all,
+    done=done_all,
+    info=info_all,
+    move_keep_ratio=0.7,    # 调 0.2~0.6
+    require_changed=True,    # 仅把真正改变状态的交互当 key/door
+    min_keep_moves=50,
+    shuffle=True
+    )
 
     print(f"Final data shape: {obs_all.shape}")
     save_experiments(cfg.env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)

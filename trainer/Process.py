@@ -44,7 +44,7 @@ def run(cfg: DictConfig):
         main_run = wandb.init(project='World_Model_Curriculum_Learning', entity='18920011663-king-s-college-london', reinit=True)
     old_params, fisher = None, None
     support = Support.Support(cfg)
-    fisher_buffer = FisherReplayBuffer(max_size=150000)
+    fisher_buffer = FisherReplayBuffer(cfg.attention_model.fisher_buffer_size)
     learning_steps = cfg.training_generator.learning_steps
     # load the map from MAP sample
     print("++++++++++++++++++++++++++++++++++++  loading tasks... ++++++++++++++++++++++++++++++++++++++++++++++")
@@ -85,7 +85,7 @@ def run(cfg: DictConfig):
                 'info': task_npz_train.get('f', None)
             }
 
-            fisher_buffer.update_with_random_by_ratio(samples_train, 0.3)
+            fisher_buffer.update_with_random_by_ratio(samples_train, 0.1, 0.15)
             print("+++++++++++ Editing env +++++++++++")
             env_edited, env_layout = support.env_editor(env_layout, cfg.training_generator.dynamic_objects)
             print("+++++++++++ Checking if add to buffer +++++++++++")
@@ -133,7 +133,7 @@ def run(cfg: DictConfig):
                 'act': task_npz_train['c'],
                 'info': task_npz_train.get('f', None)  
             }
-            fisher_buffer.update_with_random_by_ratio(samples_train, 0.4)
+            fisher_buffer.update_with_random_by_ratio(samples_train, 0.1, 0.15)
             old_params, fisher = cur_old_params, cur_fisher
             print("+++++++++++ Editing env +++++++++++")
             env_edited, env_layout = support.env_editor(env_string, cfg.training_generator.dynamic_objects)
@@ -152,8 +152,8 @@ def run(cfg: DictConfig):
             
 
         if step % 5 == 0:
-            rows = 12
-            cols = 12
+            rows = 18
+            cols = 18
             num_maps = 3
             final_task_set = support.generate_final_task_set(rows, cols, num_maps, 
                                 wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 

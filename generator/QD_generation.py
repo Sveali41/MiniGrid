@@ -1,14 +1,14 @@
 from data.env_dataset_support import *
 
 if __name__ == "__main__":
-    rows = 9
-    cols = 9
+    rows = 10
+    cols = 10
     num_maps = 500
     task_dict = generate_envs_dataset(
                 rows, cols, num_maps,
-                wall_p_range=(0.2, 0.4),
-                door_p_range=(0.2, 0.25),
-                key_p_range=(0.3, 0.35),
+                wall_p_range=(0.3, 0.4),
+                door_p_range=(0.25, 0.3),
+                key_p_range=(0.35, 0.4),
                 max_len=1e7,
                 random_gen_max=3e4,
                 save_flag= False,
