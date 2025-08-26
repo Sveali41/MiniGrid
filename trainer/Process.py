@@ -85,7 +85,7 @@ def run(cfg: DictConfig):
                 'info': task_npz_train.get('f', None)
             }
 
-            fisher_buffer.update_with_random_by_ratio(samples_train, 0.1, 0.15)
+            fisher_buffer.update_combined(samples_train, 0.3, 0.5)
             print("+++++++++++ Editing env +++++++++++")
             env_edited, env_layout = support.env_editor(env_layout, cfg.training_generator.dynamic_objects)
             print("+++++++++++ Checking if add to buffer +++++++++++")
@@ -133,7 +133,7 @@ def run(cfg: DictConfig):
                 'act': task_npz_train['c'],
                 'info': task_npz_train.get('f', None)  
             }
-            fisher_buffer.update_with_random_by_ratio(samples_train, 0.1, 0.15)
+            fisher_buffer.update_combined(samples_train, 0.3, 0.5)
             old_params, fisher = cur_old_params, cur_fisher
             print("+++++++++++ Editing env +++++++++++")
             env_edited, env_layout = support.env_editor(env_string, cfg.training_generator.dynamic_objects)
@@ -151,7 +151,7 @@ def run(cfg: DictConfig):
             support.add_into_learning_buffer(env_layout, wm_loss, samples, learning_buffer)
             
 
-        if step % 5 == 0:
+        if step % 3 == 0:
             rows = 18
             cols = 18
             num_maps = 3

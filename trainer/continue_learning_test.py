@@ -26,7 +26,7 @@ Process
 def collect_data(cfg: DictConfig):
     support = Support.Support(cfg)
     support.del_env_data_file()  # clear the data_save_path
-    env_text_file_name = ['Grid_11_11_KD_level3.txt', 'Grid_11_11_KD_level2.txt', 'Grid_11_11_KD_level1.txt'] 
+    env_text_file_name = ['Grid_11_11_KD_level4.txt'] 
     file_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'level'))
     step_len = len(env_text_file_name)
 
@@ -70,11 +70,11 @@ def test_1(cfg: DictConfig):
     from modelBased.AttentionWM import AttentionWorldModel
     import numpy as np
 
-    fisher_buffer = FisherReplayBuffer(max_size=250000)
+    fisher_buffer = FisherReplayBuffer(max_size=500000)
     old_params, fisher = None, None
 
     # env_text_file_name = ['Grid_11_11_KD_level1.txt', 'Grid_11_11_KD_level2.txt', 'Grid_11_11_KD_level3.txt']  
-    env_text_file_name = ['Grid_11_11_KD_level2.txt', 'Grid_11_11_KD_level3.txt']  
+    env_text_file_name = ['Grid_11_11_KD_level1.txt', 'Grid_11_11_KD_level2.txt', 'Grid_11_11_KD_level3.txt', 'Grid_11_11_KD_level4.txt']  
     step_len = len(env_text_file_name)
     data_save_dir = '/home/siyao/project/rlPractice/MiniGrid/trainer/data'
 
@@ -105,12 +105,12 @@ def test_1(cfg: DictConfig):
         }
         model_eval = AttentionWorldModel(cfg.attention_model).to(device)
         # fisher_buffer.update_with_top_k_recent(samples, model=model_eval, fisher=fisher, recent_k=20000, top_k=10000)
-        fisher_buffer.update_combined(samples, 0.6, 0.4) # change this to update by combine
+        fisher_buffer.update_combined(samples, 0.3, 0.5) # change this to update by combine
         # *add the function: add data to the fisher buffer by proprotional sampling
 
         # === 最后评估 ===
         cfg.attention_model.freeze_weight = True
-        for test_file in ['Grid_11_11_KD_level1.npz', 'Grid_11_11_KD_level2.npz', 'Grid_11_11_KD_level3.npz']:
+        for test_file in ['Grid_11_11_KD_level1_test.npz', 'Grid_11_11_KD_level2_test.npz', 'Grid_11_11_KD_level3_test.npz', 'Grid_11_11_KD_level4_test.npz']:
         # for test_file in ['env1_test.npz']:
             cfg.attention_model.data_dir = os.path.join(data_save_dir, test_file)
             AttentionWM_training.train_api(cfg, replay_data=None)

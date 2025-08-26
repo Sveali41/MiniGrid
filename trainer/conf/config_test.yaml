@@ -30,7 +30,7 @@ env:
   # env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
   visualize: False # to choose whether your want to see the env during interaction or not
   collect:
-    episodes: 1000 # 3500 number of episodes to start 3500
+    episodes: 350 # number of episodes to start
     data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
     num_workers: 0 # number of workers to use for data collection
@@ -47,7 +47,7 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 20 # 30
+  n_epochs: 25 # 30
   lr: 2e-4 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
@@ -65,7 +65,7 @@ attention_model:
   # resume training
   resume_training: False  # 是否继续训练
   resume_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_world_model_empty.ckpt  # 继续训练的模型路径
-  fisher_buffer_size: 200000
+  fisher_buffer_size: 500000
 
   # plot
   visualization: False     
@@ -144,7 +144,7 @@ planner:
   max_ep_len: 128
   lr_actor: 1e-4
   batch_size: 512         
-  max_training_timesteps: 50000
+  max_training_timesteps: 80000
   checkpoint_path_wm: "${oc.env:MODEL_FPATH}/policy_final_task_wm.ckpt"
 
 test_env:

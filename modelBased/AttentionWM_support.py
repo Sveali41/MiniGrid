@@ -4,14 +4,15 @@ from torch import nn
 import torch.nn.functional as F
 
 class ResidualMLP(nn.Module):
-    def __init__(self, dim, hidden_dim):
+    def __init__(self, dim, hidden_dim, dropout=0.1):
         super().__init__()
         self.fc1 = nn.Linear(dim, hidden_dim)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)  
         self.fc2 = nn.Linear(hidden_dim, dim)
 
     def forward(self, x):
-        return x + self.fc2(self.relu(self.fc1(x)))
+        return x + self.fc2(self.dropout(self.relu(self.fc1(x))))
 
 class CustomTransformerEncoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dropout=0.1):
@@ -187,12 +188,12 @@ class AttentionModule(nn.Module):
         nn.init.trunc_normal_(self.pos_embedding, std=0.02)
 
         self.fuse_fc = nn.Linear(embed_dim * 3, embed_dim)
-        self.res_mlp = ResidualMLP(embed_dim, embed_dim * 2)
+        self.res_mlp = ResidualMLP(embed_dim, embed_dim * 2, dropout=0.1)
 
 
         self.transformer_layers = nn.ModuleList([
             CustomTransformerEncoderLayer(d_model=embed_dim, nhead=num_heads)
-            for _ in range(3)
+            for _ in range(2)
         ])
         self.fc = nn.Linear(embed_dim, 3)
         self.dropout_conv = nn.Dropout(p=0.1)

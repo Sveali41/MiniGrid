@@ -120,7 +120,7 @@ class Support:
     def validate_world_model(self, cfg, old_params=None, fisher=None, env_layout=None):
         print("++++++++++++++++++++++++++++++++++++ training the world model... ++++++++++++++++++++++++++++++++++++++++++++++")
         cfg.attention_model.freeze_weight = True
-        validation_error, _ = AttentionWM_training.train_api(cfg, old_params, fisher, env_layout)
+        validation_error, _ = AttentionWM_training.train_api(cfg, old_params, fisher, env_layout, replay_data=None)
         return validation_error
 
     def generate_final_task(self, rows, cols, num_maps, save=True, wall_p_range=(0.1, 0.5),door_p_range=(0.075, 0.1), 

@@ -678,7 +678,7 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
     rew=rew_all,
     done=done_all,
     info=info_all,
-    move_keep_ratio=0.7,    # 调 0.2~0.6
+    move_keep_ratio=0.4,    # 调 0.2~0.6
     require_changed=True,    # 仅把真正改变状态的交互当 key/door
     min_keep_moves=50,
     shuffle=True
