@@ -439,7 +439,8 @@ class AttentionWorldModel(pl.LightningModule):
     def configure_optimizers(self):
         params = [p for p in self.parameters() if p.requires_grad]
         optimizer = optim.Adam(params, lr=self.lr, betas=(0.9, 0.999), eps=1e-6, weight_decay=self.weight_decay)
-        reduce_lr_on_plateau = ReduceLROnPlateau(optimizer, mode='min',verbose=True, min_lr=1e-8)
+        # reduce_lr_on_plateau = ReduceLROnPlateau(optimizer, mode='min',verbose=True, min_lr=1e-8)
+        reduce_lr_on_plateau = ReduceLROnPlateau(optimizer, mode='min', min_lr=1e-8)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {

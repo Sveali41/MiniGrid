@@ -18,3 +18,4 @@ generator/visualize
 modelBased/models/Rmax
 modelBased/models/AttentionWM
 trainer/visulization
+lightning_logs

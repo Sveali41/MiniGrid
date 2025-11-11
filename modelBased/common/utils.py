@@ -10,6 +10,8 @@ from . import utilis_support
 from typing import Dict
 from matplotlib.colors import LinearSegmentedColormap
 from generator.common.utils import generate_color_map, layout_to_string, combine_maps, add_outer_wall
+import omegaconf
+import torch.serialization
 
 def replace_values(arr, old_values, new_values):
     assert arr.ndim >= 2 and len(old_values) == len(new_values)
@@ -129,24 +131,45 @@ def put_back_masked_state(state_masked, orginal_state, mask_size, agent_position
 
 def load_model_weight(model, weight_path, freeze=True):
     try:
-        # 加载 checkpoint
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        checkpoint = torch.load(weight_path)
-        state_dict = {k.replace("model.", ""): v for k, v in checkpoint["state_dict"].items()}
 
-        model.load_state_dict(state_dict)
+        torch.serialization.add_safe_globals([omegaconf.dictconfig.DictConfig])
+
+        with torch.serialization.safe_globals([omegaconf.dictconfig.DictConfig]):
+            checkpoint = torch.load(weight_path, weights_only=False, map_location=device)
+
+
+        if "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+        else:
+            # 是纯 state_dict
+            state_dict = checkpoint
+        cleaned_state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
+
+        model.load_state_dict(cleaned_state_dict, strict=False)
+
         model.to(device)
-        model.eval()  # 切换到评估模式
+        model.eval()
 
-        # 冻结参数
         if freeze:
             for param in model.parameters():
                 param.requires_grad = False
 
+        print(f"[Load] Model weights loaded from: {weight_path}")
+
     except FileNotFoundError:
         raise FileNotFoundError(f"Error: Weight file not found at {weight_path}")
+
     except KeyError as e:
-        raise KeyError(f"Error: {e}")
+        raise KeyError(f"Error: missing key in checkpoint -> {e}")
+
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"Model loading RuntimeError: {e}\n"
+            f"If this is due to PyTorch safe-unpickle restrictions, "
+            f"ensure add_safe_globals was applied correctly."
+        )
+
     except Exception as e:
         raise RuntimeError(f"Unexpected error occurred: {e}")
 
