@@ -1,0 +1,98 @@
+# 1. attension model
+attention_model:
+  data_type: discrete # 'norm' or 'discrete'  # 这两种类型效果都还不错 20250213
+  model_type: Attention       # Attention, Embedding, MLP
+  grid_shape: [3, 0, 0]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
+  attention_mask_size: 3
+  batch_size: 256  # test 64/128/256
+  n_cpu: 8
+  embed_dim: 256  # 128 64/128/256
+  num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
+  data_dir: ${oc.env:TRAIN_DATASET_PATH}/gridworld_11_11_empty_1000eps.npz
+  n_epochs: 20
+  lr: 1e-4
+  wd: 1e-5
+  obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
+  action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
+  valid_values_obj: [1, 2, 4, 5, 8, 10]
+  valid_values_color: [0, 1, 5]
+  valid_values_state: [0, 1, 2, 3]
+  use_wandb: False
+
+  # freeze weights
+  freeze_weight: False # 置true 会加载权重，不会训练模型，用于验证
+  # model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_world_model.ckpt   # 这是整个模型的保存路径 20250213
+  model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/att-epoch=07-avg_val_loss_wm=0.00007.ckpt
+  # model_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/att-wm.ckpt
+  # weight_save_path: ${oc.env:MODEL_FPATH}/AttentionWM/attention_weight.ckpt  # 这个是只保存模型的权重 20250213
+
+
+  # plot
+  visualization: True      
+  visualize_every: 5
+  save_path: ${oc.env:PROJECT_ROOT}/modelBased/visulization
+  direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
+  action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
+
+# 2. data collection
+env:
+  env_path: ${oc.env:ENV_PATH}/Grid_6_12_empty.txt
+  visualize: True # to choose whether your want to see the env during interaction or not
+  collect:
+    episodes: 1000 # number of episodes to start 
+    data_save_path: ${oc.env:TRAIN_DATASET_PATH}/gridworld_6_12_empty_1000eps.npz # folder where to save the rollouts
+
+# 3. PPO model
+PPO:
+  env_type: empty # empty, with obj
+  has_continuous_action_space: False
+  max_ep_len: 10000  # max timesteps in one episode
+  action_std: 0.1  # set same std for action distribution which was used while saving
+  i_episode: 0
+  K_epochs: 80  # update policy for K epochs
+  eps_clip: 0.2  # clip parameter for PPO
+  gamma: 0.99  # discount factor
+  lr_actor: 0.0003  # learning rate for actor
+  lr_critic: 0.001  # learning rate for critic
+  checkpoint_path: ${oc.env:MODEL_FPATH}/policy_model_21_21.ckpt
+  time_step: 0
+  max_training_timesteps: 3e6 #1.2e5
+  # max_training_timesteps: 3e5
+  action_std_decay_freq: 2.5e5
+  action_std_decay_rate: 0.05
+  min_action_std: 0.1
+  save_model_freq: 2e4
+  ########################################
+  # test
+  total_test_episodes: 1000
+  render: True
+  env_path: ${oc.env:ENV_PATH}/Grid_21_21_empty.txt
+  visualize: false
+  save_gif: True
+  save_path_gif: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_gif
+  save_csv: True
+  save_path_csv: ${oc.env:PROJECT_ROOT}/modelBased/visulization/PPO/PPO_csv
+  use_wandb: False
+
+test_env:
+  visualize: False
+  time_limit: 256 #max number of steps for each rollout 600
+  env_name: MiniGrid-Empty-8x8-v0 #MiniGrid-Dynamic-Obstacles-8x8-v0 #MiniGrid-Empty-5x5-v0 #MiniGrid-Empty-8x8-v0 #MiniGrid-Empty-Random-6x6-v0 
+  n_rollouts: 1000
+
+# 4. Rmax
+R_max:
+  R_max: 1
+  exploration_timesteps: 1e4
+  num_iterations: 1
+  exploration_threshold: 10
+
+
+data_collect:
+  level_path: ${oc.env:ENV_PATH}/Grid_11_11.txt #MiniGrid-Dynamic-Obstacles-8x8-v0 # Name of environment, or comma-separate list of environment names to instantiate as each env in the VecEnv.
+  visualize: False # to choose whether your want to see the env during interaction or not
+  episodes: 200 # number of episodes to start 
+  collect:
+    data_train: ${oc.env:TRAIN_DATASET_PATH}/gridworld_Rmax.npz # folder where to save the rollouts
+    visit_count: ${oc.env:TRAIN_DATASET_PATH}/visit_count_Rmax.npz # folder where to save the rollouts
+

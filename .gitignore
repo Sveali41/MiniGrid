@@ -1,0 +1,20 @@
+/modelBased/wandb/
+wandb/
+outputs/
+
+# Ignore Python bytecode files
+__pycache__/
+
+*.py[cod]
+
+# Ignore JetBrains IDE settings
+.idea/
+
+# ignore visualisation files
+modelBased/visulization
+generator/visualize
+
+# ignore model files
+modelBased/models/Rmax
+modelBased/models/AttentionWM
+trainer/visulization
