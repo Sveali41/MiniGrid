@@ -379,12 +379,16 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from crafter import constants
 
+    # actually the string shape need to be square
+
     layout_str = """
-    GGGGG
-    GGGZG
-    GGAGG
-    GGGMG
-    GGWGG
+    GGIIGGG
+    GGAGGGW
+    GKGGGTG
+    RGGPGGI
+    GWGGGGG
+    GKGGGTG
+    GWGGGGG
     """
 
     # --- 1. Create a custom environment from the layout string ---

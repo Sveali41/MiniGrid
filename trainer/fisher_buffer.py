@@ -156,9 +156,9 @@ class FisherReplayBuffer:
         if len(self.buffer) > self.max_size:
             self.buffer = self.buffer[-self.max_size:]
 
-    def get_agent_near_keydoor_mask(self, obs: torch.Tensor):
+    def get_agent_near_elements_mask(self, obs: torch.Tensor):
         """
-        返回一个布尔 mask，表示哪些样本中 agent 紧邻 key 或 door。
+        返回一个布尔 mask，表示哪些样本中 agent 紧邻 key/door/lava。
         agent 由 obj_map 中值为 10 的位置定义。
         obs: Tensor of shape (B, C, H, W) or (B, H, W, C)
         return: BoolTensor of shape (B,)
@@ -189,7 +189,7 @@ class FisherReplayBuffer:
                 neighbors.append(obj_map[b, y, x + 1])
 
             for val in neighbors:
-                if val.item() in [4, 5]:  # door or key
+                if val.item() in [4, 5, 9]:  # door or key or lava
                     near_mask[b] = True
                     break
 
@@ -199,7 +199,7 @@ class FisherReplayBuffer:
         self,
         samples: Dict[str, np.ndarray],
         ratio: float,                 # 从当前 samples 中抽多少比例
-        keydoor_ratio: float = 0.3    # 其中 key/door 样本占比
+        elements_ratio: float    # 其中 key/door/lava 样本占比
     ):
         """
         综合插入策略（基于当前 sample 数量）：
@@ -218,27 +218,26 @@ class FisherReplayBuffer:
         obs = samples['obs']
         obs_tensor = torch.tensor(obs) if not isinstance(obs, torch.Tensor) else obs
         try:
-            near_keydoor_mask = self.get_agent_near_keydoor_mask(obs_tensor)
-            near_indices_all = torch.where(near_keydoor_mask)[0].cpu().numpy()
+            near_elements_mask = self.get_agent_near_elements_mask(obs_tensor)
+            near_indices_all = torch.where(near_elements_mask)[0].cpu().numpy()
         except Exception as e:
-            print("Error computing near_keydoor_mask:", e)
+            print("Error computing near_elements_mask:", e)
             near_indices_all = np.array([], dtype=int)
 
-        keydoor_quota = int(total_quota * keydoor_ratio)
-        keydoor_selected = []
-        if len(near_indices_all) > 0 and keydoor_quota > 0:
-            pick_n = min(keydoor_quota, len(near_indices_all))
-            keydoor_selected = np.random.choice(near_indices_all, pick_n, replace=False).tolist()
-
+        elements_quota = int(total_quota * elements_ratio)
+        elements_selected = []
+        if len(near_indices_all) > 0 and elements_quota > 0:
+            pick_n = min(elements_quota, len(near_indices_all))
+            elements_selected = np.random.choice(near_indices_all, pick_n, replace=False).tolist()
         # === Part 2: 剩余 quota 从其他样本中随机选择 ===
-        remaining_quota = total_quota - len(keydoor_selected)
+        remaining_quota = total_quota - len(elements_selected)
         total_indices = list(range(total_len))
-        non_keydoor_pool = [i for i in total_indices if i not in keydoor_selected]
-        random.shuffle(non_keydoor_pool)
-        random_selected = non_keydoor_pool[:remaining_quota]
+        non_elements_pool = [i for i in total_indices if i not in elements_selected]
+        random.shuffle(non_elements_pool)
+        random_selected = non_elements_pool[:remaining_quota]
 
         # === 合并采样并打乱 ===
-        all_selected_indices = keydoor_selected + random_selected
+        all_selected_indices = elements_selected + random_selected
         random.shuffle(all_selected_indices)
 
         selected = []

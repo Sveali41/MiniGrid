@@ -32,9 +32,10 @@ env:
   save_visualized_img: True
   visualize_save_path: ${oc.env:TRAINER_PATH}/logs/env_visualization/
   collect:
+  
     env_type: norm # empty means empty only wall in preprocess no info for keys, lava/door/key/wall/norm
     data_type: random # random/ uniform -- data collection   random -- training
-    episodes: 600  # 500 number of episodes to start
+    episodes: 400  # 500 number of episodes to start
     data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
     num_workers: 0 # number of workers to use for data collection
@@ -42,6 +43,8 @@ env:
     visualize_save_path: ${oc.env:TRAINER_PATH}/logs/dataset_visualization/
     visualize_filename: "agent_coverage_uniform.png"
     ignore_done: true  # whether or not to ignore the done signal during data collection
+    merge_subsets: True  # whether or not to merge subsets during data collection
+    merge_k: 3  # number of subsets to merge if merge_subsets is True
 
 # 3. attension model
 attention_model:
@@ -51,13 +54,13 @@ attention_model:
   model_type: Attention       # Attention, Embedding, MLP
   grid_shape: [3, 9, 10]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
   attention_mask_size: 3
-  batch_size: 128  # test 64/128/256
+  batch_size: 64  # test 64/128/256
   n_cpu: 0
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
   n_epochs: 30  # 25
-  lr: 1e-4 # 1e-4 
+  lr: 5e-4 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
   action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
@@ -66,6 +69,8 @@ attention_model:
   valid_values_state: [0, 1, 2, 3]
   use_wandb: False
   fisher_buffer_size: 500000
+  current_sample_ratio: 0.3
+  fisher_buffer_elements_ratio: 0.8 # proportion of key/door/lava samples in current fisher buffer sampling
   keep_cell_loss: false  # whether or not to keep cell loss
 
 

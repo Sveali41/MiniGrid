@@ -15,7 +15,11 @@ modelBased/visulization
 generator/visualize
 
 # ignore model files
-modelBased/models/Rmax
-modelBased/models/AttentionWM
-trainer/visulization
+modelBased/models/
 lightning_logs
+
+
+# ignore trainer files
+trainer/logs
+trainer/data/temp
+

@@ -82,7 +82,7 @@ def split_target_task_into_minitasks(target_task_file: str, patch_size: int):
     env.reset() 
     layout_str = env.layout_str 
     patches = extract_unique_patches(layout_str, patch_size)
-    minitasks_set = generate_minitasks_until_covered(patches, patch_size=patch_size)
+    minitasks_set = generate_minitasks_until_covered(patches, patch_size, patches_per_minitask=4)
     print(len(minitasks_set), "unique minitasks generated from", target_task_file)
     return minitasks_set
 
@@ -209,7 +209,9 @@ def train_wm_with_subsets(
     temp_dir,
     num_iterations,
     old_params,
-    fisher
+    fisher,
+    current_sample_ratio,
+    fisher_buffer_elements_ratio
 ):
     """
     Train WM on multiple subsets with Fisher-based replay.
@@ -247,7 +249,7 @@ def train_wm_with_subsets(
             'info': subset['f']
         }
 
-        fisher_buffer.update_combined(samples, 0.3, 0.5)
+        fisher_buffer.update_combined(samples, current_sample_ratio, fisher_buffer_elements_ratio)
 
         print(f"[WM] Iter {it+1}/{num_iterations} using subset {idx}")
 
@@ -549,7 +551,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
 
     test = False # True: using random data directly collect from target task -- baseline / False: using minitask strings
     mode = "CL" # 'CL' / 'Baseline'
-    interval_size = 5000 # number of transitions per training phase
+    interval_size = 10000 # number of transitions per training phase
     explore_type = cfg.env.collect.data_type # uniform / random
     data_save_dir = TRAINER_PATH / "data"
 
@@ -560,6 +562,8 @@ def curriculum_learning_transitions(cfg: DictConfig):
     target_file = "3obstacles_target_task_test_uniform.npz"
 
     fisher_buffer = FisherReplayBuffer(max_size=500000)
+    current_sample_ratio = cfg.attention_model.current_sample_ratio
+    fisher_buffer_elements_ratio = cfg.attention_model.fisher_buffer_elements_ratio
     old_params, fisher = None, None
 
     # --------------------------------------
@@ -593,7 +597,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
                 cfg,
                 env_source=(layout_str, color_str),
                 save_name=save_name,
-                max_steps=500
+                max_steps=2000
             )
             phase_name = save_name
             task_npz = np.load(dataset_path, allow_pickle=True)
@@ -615,7 +619,9 @@ def curriculum_learning_transitions(cfg: DictConfig):
             temp_dir=TRAINER_PATH /'data'/"temp",
             num_iterations=1,
             old_params=old_params,    # <-- Pass previous phase parameters
-            fisher=fisher             # <-- Pass previous fisher
+            fisher=fisher,             # <-- Pass previous fisher
+            current_sample_ratio=current_sample_ratio,
+            fisher_buffer_elements_ratio=fisher_buffer_elements_ratio
         )
 
         # --------------------------------------

@@ -585,6 +585,28 @@ def minitask_has_new_patch(selected, covered_set):
     return False
 
 
+def combine_patches_1x2(patches):
+    """
+    patches: list of 2 patch strings
+    return: combined minitask layout string
+    """
+    assert len(patches) == 2
+
+    A = patch_to_array(patches[0])
+    B = patch_to_array(patches[1])
+
+    K = A.shape[0]
+
+    # Create 1 x 2 grid
+    big = np.full((K, 2 * K), 'E', dtype=str)
+    big[:, 0*K:1*K] = A
+    big[:, 1*K:2*K] = B
+
+    # Convert back to string (same format as original)
+    return array_to_patch(big)
+
+
+
 # ============================================================
 # 5. Master generator: keep building minitasks until all patches covered
 # ============================================================
@@ -637,7 +659,10 @@ def generate_minitasks_until_covered(
             continue
 
         # Combine → layout
-        mt_layout = combine_patches_2x2(selected)
+        if patches_per_minitask == 2:
+            mt_layout = combine_patches_1x2(selected)
+        else:
+            mt_layout = combine_patches_2x2(selected)
 
         # Add walls
         mt_layout = add_outer_wall(mt_layout)

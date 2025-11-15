@@ -319,7 +319,7 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
             step_in_episode += 1
 
             obs_list.append([obs['image']])
-            teleport_near_important_tiles(env, obs, step_in_episode, interval=25)
+            # teleport_near_important_tiles(env, obs, step_in_episode, interval=50)
 
             if "wall" in task_name:
                 action_probs = [0.6, 0.2, 0.2, 0.0, 0.0]  # 多往前撞墙
@@ -425,7 +425,7 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
     return obs_np, obs_next_np, act_np, rew_np, done_np, info_np
 
 
-def teleport_near_important_tiles(env, obs, step_in_episode, interval=25):
+def teleport_near_important_tiles(env, obs, step_in_episode, interval):
     """
     Every `interval` steps, teleport agent to an EMPTY tile near key/door/lava.
     """
