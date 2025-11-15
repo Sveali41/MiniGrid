@@ -8,7 +8,7 @@ import os
 
 
 class FisherReplayBuffer:
-    def __init__(self, max_size: int = 1000):
+    def __init__(self, max_size):
         self.buffer = []
         self.max_size = max_size
         self.mask_size = 3  # Cross mask size

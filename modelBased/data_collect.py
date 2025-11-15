@@ -982,8 +982,6 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
             title=f"Agent Position Coverage ({cfg.env.collect.data_type})"
         )
 
-        print(f"Coverage heatmap saved to {save_path}")
-
     env.close()
 
 

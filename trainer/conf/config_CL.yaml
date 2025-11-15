@@ -32,7 +32,6 @@ env:
   save_visualized_img: True
   visualize_save_path: ${oc.env:TRAINER_PATH}/logs/env_visualization/
   collect:
-  
     env_type: norm # empty means empty only wall in preprocess no info for keys, lava/door/key/wall/norm
     data_type: random # random/ uniform -- data collection   random -- training
     episodes: 400  # 500 number of episodes to start
@@ -72,6 +71,7 @@ attention_model:
   current_sample_ratio: 0.3
   fisher_buffer_elements_ratio: 0.8 # proportion of key/door/lava samples in current fisher buffer sampling
   keep_cell_loss: false  # whether or not to keep cell loss
+  n_phases_to_collect: 3  # how many phases to accumulate before training
 
 
   # freeze weights

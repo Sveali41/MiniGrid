@@ -110,13 +110,11 @@ def collect_data_general(
     # -----------------------------
     if isinstance(env_source, (str, os.PathLike)) and str(env_source).endswith(".txt"):
         # From text file
-        print(f"[Collect] Loading environment from file: {env_source}")
         env = support.wrap_env_from_text(env_source)
 
     elif isinstance(env_source, tuple) and len(env_source) == 2:
         # From minitask strings
         layout_str, color_str = env_source
-        print("[Collect] Loading environment from minitask string")
 
         env = FullyObsWrapper(CustomMiniGridEnv(
             layout_str=layout_str,
@@ -146,8 +144,6 @@ def collect_data_general(
     # -----------------------------
     # 4. Run actual data collection
     # -----------------------------
-    print(f"[Collect] Saving dataset to {save_path}")
-
     support.collect_data_trainer(
         env=env,
         wandb_run=None,
@@ -567,8 +563,15 @@ def curriculum_learning_transitions(cfg: DictConfig):
     old_params, fisher = None, None
 
     # --------------------------------------
-    # Select sources
+    # New Parameter & Setup for N-phase collection
     # --------------------------------------
+    N_PHASES_TO_COLLECT = cfg.attention_model.n_phases_to_collect # how many phases to accumulate before training
+    
+    # Initialize data accumulation buffer
+    # Standard keys for transitions: 'obs', 'act', 'obs_next', 'reward', 'terminal', 'info'
+    combined_data = {k: [] for k in ['a', 'b', 'c', 'd', 'e', 'f']}
+    phases_collected = 0
+
     if test:
         phase_files = ['3obstacles_target_task.txt'] * 35
 
@@ -576,19 +579,23 @@ def curriculum_learning_transitions(cfg: DictConfig):
         target_task_name = '3obstacles_target_task.txt'
         phase_files = split_target_task_into_minitasks(target_task_name, patch_size=3)
 
+
+    for idx, phase in enumerate(phase_files):
+        print(f"\n===== Data Collection: Phase {idx+1}/{len(phase_files)} =====")
+    # --------------------------------------
+    # Select sources
+    # --------------------------------------
+
+
     # --------------------------------------
     # Training Loop
     # --------------------------------------
-    for idx, phase in enumerate(phase_files):
-        print(f"\n===== Phase {idx+1}/{len(phase_files)} =====")
-
-        # 1) txt file mode
+    # 2) minitask string mode (generating)
         if test:
+            # 1) txt file mode (loading)
             phase_name = os.path.splitext(phase)[0]
             dataset_path = os.path.join(data_save_dir, f"{phase_name}_test_{explore_type}.npz")
             task_npz = np.load(dataset_path, allow_pickle=True)
-
-        # 2) minitask string mode
         else:
             layout_str, color_str = phase.split("\n\n")
             save_name = f"minitask_{idx}"
@@ -597,59 +604,94 @@ def curriculum_learning_transitions(cfg: DictConfig):
                 cfg,
                 env_source=(layout_str, color_str),
                 save_name=save_name,
-                max_steps=2000
+                max_steps=5000
             )
             phase_name = save_name
             task_npz = np.load(dataset_path, allow_pickle=True)
+    # ---------------------------------------------------------------------------------
 
-        transitions = interval_size
+    # 1. Accumulate collected data
+        data_dict = dict(task_npz)
+        for k in combined_data.keys():
+            if k in data_dict:
+                # Append the NumPy array from the current phase to the list for this key
+                combined_data[k].append(data_dict[k])
+        phases_collected += 1
+        
+        # 2. Check if training should be triggered
+        is_accumulation_complete = (phases_collected >= N_PHASES_TO_COLLECT)
+        is_last_phase = (idx == len(phase_files) - 1)
+        
+        # Only train if we have collected N phases, OR if we're at the very end
+        if is_accumulation_complete or (is_last_phase and phases_collected > 0):
+            
+            # --- Combine collected data into one structure ---
+            print(f"--- Training on combined data from last {phases_collected} phases ---")
+            
+            final_npz = {}
+            # Concatenate all lists of arrays into single NumPy arrays for training
+            for k, arrays in combined_data.items():
+                if arrays: 
+                    final_npz[k] = np.concatenate(arrays, axis=0)
+            
+            # Determine logging info (transitions and phase name)
+            transitions = len(final_npz.get('obs', []))
+            
+            # Use a descriptive name for logging the combined phase
+            log_phase_name = f"Combined_P{idx - phases_collected + 2}_to_P{idx+1}" 
+            
+            # --------------------------------------
+            # Create subsets (using the combined data)
+            # --------------------------------------
+            subsets = create_data_subsets(final_npz, interval_size)
 
-        # --------------------------------------
-        # Create subsets
-        # --------------------------------------
-        subsets = create_data_subsets(task_npz, interval_size)
+            # --------------------------------------
+            # Train WM on subsets
+            # --------------------------------------
+            old_params, fisher = train_wm_with_subsets(
+                cfg,
+                subsets,
+                fisher_buffer,
+                temp_dir=TRAINER_PATH /'data'/"temp",
+                num_iterations=1,
+                old_params=old_params,    
+                fisher=fisher,             
+                current_sample_ratio=current_sample_ratio,
+                fisher_buffer_elements_ratio=fisher_buffer_elements_ratio
+            )
 
-        # --------------------------------------
-        # Train WM on subsets
-        # --------------------------------------
-        old_params, fisher = train_wm_with_subsets(
-            cfg,
-            subsets,
-            fisher_buffer,
-            temp_dir=TRAINER_PATH /'data'/"temp",
-            num_iterations=1,
-            old_params=old_params,    # <-- Pass previous phase parameters
-            fisher=fisher,             # <-- Pass previous fisher
-            current_sample_ratio=current_sample_ratio,
-            fisher_buffer_elements_ratio=fisher_buffer_elements_ratio
-        )
+            # --------------------------------------
+            # VALIDATION (unified)
+            # --------------------------------------
+            avg_loss = validate_on_target_task(
+                cfg,
+                fisher_buffer=fisher_buffer,
+                data_save_dir=data_save_dir,
+                target_file=target_file,
+                phase_name=log_phase_name, # Use combined name
+                VALID_TIMES=1
+            )
 
-        # --------------------------------------
-        # VALIDATION (unified)
-        # --------------------------------------
-        avg_loss = validate_on_target_task(
-            cfg,
-            fisher_buffer=fisher_buffer,
-            data_save_dir=data_save_dir,
-            target_file=target_file,
-            phase_name=phase_name,
-            VALID_TIMES=1
-        )
+            # --------------------------------------
+            # Save CSV (unified)
+            # --------------------------------------
+            save_validation_csv(
+                csv_path=csv_path,
+                seed=seed,
+                mode=mode,
+                phase_name=log_phase_name, # Use combined name
+                transitions=transitions,
+                loss=avg_loss
+            )
+            
+            # 3. Reset buffer and counter for the next batch
+            combined_data = {k: [] for k in combined_data.keys()}
+            phases_collected = 0
+            
+        else:
+            # Continue collecting data if N phases haven't been reached
+            print(f"Current accumulation: {phases_collected}/{N_PHASES_TO_COLLECT}. Continuing collection...")
 
-        # --------------------------------------
-        # Save CSV (unified)
-        # --------------------------------------
-        save_validation_csv(
-            csv_path=csv_path,
-            seed=seed,
-            mode=mode,
-            phase_name=phase_name,
-            transitions=transitions,
-            loss=avg_loss
-        )
-
-    print("\n=== Curriculum Learning Completed ===")
-    print(f"Results saved to: {csv_path}")
 
 
 
