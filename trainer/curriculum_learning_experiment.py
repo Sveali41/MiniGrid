@@ -566,6 +566,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
     # New Parameter & Setup for N-phase collection
     # --------------------------------------
     N_PHASES_TO_COLLECT = cfg.attention_model.n_phases_to_collect # how many phases to accumulate before training
+    MAX_TRANSITIONS_PER_MINITASK = int(interval_size/N_PHASES_TO_COLLECT)
     
     # Initialize data accumulation buffer
     # Standard keys for transitions: 'obs', 'act', 'obs_next', 'reward', 'terminal', 'info'
@@ -604,7 +605,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
                 cfg,
                 env_source=(layout_str, color_str),
                 save_name=save_name,
-                max_steps=5000
+                max_steps=500
             )
             phase_name = save_name
             task_npz = np.load(dataset_path, allow_pickle=True)
@@ -612,10 +613,22 @@ def curriculum_learning_transitions(cfg: DictConfig):
 
     # 1. Accumulate collected data
         data_dict = dict(task_npz)
+        current_length = len(data_dict.get('a', [])) # Check how many transitions were collected
+
+        # --- Sampling/Truncation Logic ---
+        if current_length > MAX_TRANSITIONS_PER_MINITASK:
+            # Randomly sample the required number of transitions
+            indices = np.random.choice(current_length, size=MAX_TRANSITIONS_PER_MINITASK, replace=False)
+        else:
+            # Use all collected data if fewer than the maximum (important for rare events)
+            indices = np.arange(current_length)
+
+        # Apply indices to all keys and accumulate
         for k in combined_data.keys():
-            if k in data_dict:
-                # Append the NumPy array from the current phase to the list for this key
-                combined_data[k].append(data_dict[k])
+            if k in data_dict and len(data_dict[k]) > 0:
+                # Append the sampled/truncated NumPy array to the list for this key
+                combined_data[k].append(data_dict[k][indices])
+
         phases_collected += 1
         
         # 2. Check if training should be triggered
@@ -669,7 +682,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
                 data_save_dir=data_save_dir,
                 target_file=target_file,
                 phase_name=log_phase_name, # Use combined name
-                VALID_TIMES=1
+                VALID_TIMES=5
             )
 
             # --------------------------------------

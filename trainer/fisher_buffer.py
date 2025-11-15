@@ -255,7 +255,11 @@ class FisherReplayBuffer:
 
         # === 裁剪 buffer ===
         if len(self.buffer) > self.max_size:
-            self.buffer = self.buffer[-self.max_size:]
+            num_to_remove = len(self.buffer) - self.max_size
+            all_indices = list(range(len(self.buffer)))
+            indices_to_remove = np.random.choice(all_indices, size=num_to_remove, replace=False)
+            indices_to_keep = sorted(list(set(all_indices) - set(indices_to_remove)))
+            self.buffer = [self.buffer[i] for i in indices_to_keep]
 
 
 

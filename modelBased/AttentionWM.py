@@ -513,7 +513,7 @@ class AttentionWorldModel(pl.LightningModule):
         self.log("train/ewc_term", ewc_term.detach(), on_step=True, on_epoch=True)
         self.log("train/loss_total", loss_total.detach(), on_step=True, on_epoch=True)
 
-        if self.global_step % 10000 == 0:
+        if self.global_step % 1000 == 0:
             print(f"[Step {self.global_step}] "
                 f"loss_obs: {obs_loss.item():.6f}, "
                 f"ewc_raw: {ewc_raw.item():.6f}, "

@@ -196,7 +196,7 @@ class AttentionModule(nn.Module):
             for _ in range(2)
         ])
         self.fc = nn.Linear(embed_dim, 3)
-        self.dropout_conv = nn.Dropout(p=0.1)
+        self.dropout_conv = nn.Dropout(p=0.2)
 
 
     def forward(self, state, action, info):
