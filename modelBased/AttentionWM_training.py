@@ -23,6 +23,16 @@ from modelBased.common.utils import TRAINER_PATH
 def train(cfg: DictConfig):
     run(cfg)
 
+def compare_params(net, old_params):
+    if old_params is None:
+        print('old params is None, skip comparison')
+        return
+    print("------ Comparing old_params to current model params ------")
+    for name, param in net.named_parameters():
+        if name in old_params:
+            diff = (param.detach().cpu() - old_params[name]).abs().max().item()
+            print(f"{name:40s} diff = {diff:.8f}")
+
 
 def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=None):
     print(f'*************************Data set: {cfg.attention_model.data_dir}************************')
@@ -92,13 +102,12 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=
     # ===========
     # 仅验证 or 训练
     # ===========
+    # 用统一入口设置“旧参数 + Fisher”锚点（内部已转到 CPU/float32）
+    net.set_consolidation(old_params, fisher)
     if cfg.attention_model.freeze_weight:
         avg_val_loss = trainer.validate(net, datamodule)
         return avg_val_loss, net
     else:
-        # 用统一入口设置“旧参数 + Fisher”锚点（内部已转到 CPU/float32）
-        net.set_consolidation(old_params, fisher)
-
         # 训练
         trainer.fit(net, datamodule)
 

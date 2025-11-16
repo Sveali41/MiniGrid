@@ -86,7 +86,6 @@ def split_target_task_into_minitasks(target_task_file: str, patch_size: int):
     print(len(minitasks_set), "unique minitasks generated from", target_task_file)
     return minitasks_set
 
-
 def collect_data_general(
     cfg,
     env_source,
@@ -251,8 +250,7 @@ def train_wm_with_subsets(
 
     return old_params, fisher
 
-
-def validate_on_target_task(cfg, fisher_buffer, data_save_dir, target_file, phase_name, VALID_TIMES=1):
+def validate_on_target_task(cfg, old_params, data_save_dir, target_file, phase_name, VALID_TIMES=1):
     """
     Run WM validation on the fixed target task, return avg loss.
     Save no heatmap here (can add if needed).
@@ -265,7 +263,7 @@ def validate_on_target_task(cfg, fisher_buffer, data_save_dir, target_file, phas
     losses = []
 
     for v in range(VALID_TIMES):
-        val_result, model = AttentionWM_training.train_api(cfg, None, None)
+        val_result, model = AttentionWM_training.train_api(cfg, old_params, None)
         loss_val = float(val_result[0]['avg_val_loss_wm'])
         losses.append(loss_val)
 
@@ -296,8 +294,6 @@ def save_validation_csv(csv_path, seed, mode, phase_name, transitions, loss):
             'avg_target_loss': loss,
         })
 
-
-
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_CL")
 def collect_data_for_txt(cfg: DictConfig):
     """
@@ -322,8 +318,6 @@ def collect_data_for_txt(cfg: DictConfig):
         save_name=file_name,
         max_steps=10000
     )
-
-
 
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_CL")
 def visualize_CL_dataset(cfg: DictConfig):
@@ -354,7 +348,6 @@ def visualize_CL_dataset(cfg: DictConfig):
         save_path=os.path.join(save_path, fig_name),
         fig_name=fig_name
     )
-
 
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_CL")
 def test_1(cfg: DictConfig):
@@ -518,7 +511,6 @@ def test_1(cfg: DictConfig):
         print(f"Average heatmap saved to {output_path}")
 
 
-
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_CL")
 def curriculum_learning_transitions(cfg: DictConfig):
     """
@@ -546,7 +538,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
     set_seed(seed)
 
     test = False # True: using random data directly collect from target task -- baseline / False: using minitask strings
-    mode = "CL" # 'CL' / 'Baseline'
+    mode = "Baseline" # 'CL' / 'Baseline'
     interval_size = 10000 # number of transitions per training phase
     explore_type = cfg.env.collect.data_type # uniform / random
     data_save_dir = TRAINER_PATH / "data"
@@ -557,7 +549,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
 
     target_file = "3obstacles_target_task_test_uniform.npz"
 
-    fisher_buffer = FisherReplayBuffer(max_size=500000)
+    fisher_buffer = FisherReplayBuffer(max_size=50000)
     current_sample_ratio = cfg.attention_model.current_sample_ratio
     fisher_buffer_elements_ratio = cfg.attention_model.fisher_buffer_elements_ratio
     old_params, fisher = None, None
@@ -566,7 +558,6 @@ def curriculum_learning_transitions(cfg: DictConfig):
     # New Parameter & Setup for N-phase collection
     # --------------------------------------
     N_PHASES_TO_COLLECT = cfg.attention_model.n_phases_to_collect # how many phases to accumulate before training
-    MAX_TRANSITIONS_PER_MINITASK = int(interval_size/N_PHASES_TO_COLLECT)
     
     # Initialize data accumulation buffer
     # Standard keys for transitions: 'obs', 'act', 'obs_next', 'reward', 'terminal', 'info'
@@ -575,23 +566,23 @@ def curriculum_learning_transitions(cfg: DictConfig):
 
     if test:
         phase_files = ['3obstacles_target_task.txt'] * 35
-
+        mode = "Baseline" # 'CL' / 'Baseline'
     else:
         target_task_name = '3obstacles_target_task.txt'
         phase_files = split_target_task_into_minitasks(target_task_name, patch_size=3)
-
+        mode = "CL" # 'CL' / 'Baseline'
 
     for idx, phase in enumerate(phase_files):
         print(f"\n===== Data Collection: Phase {idx+1}/{len(phase_files)} =====")
-    # --------------------------------------
-    # Select sources
-    # --------------------------------------
+        # --------------------------------------
+        # Select sources
+        # --------------------------------------
 
 
-    # --------------------------------------
-    # Training Loop
-    # --------------------------------------
-    # 2) minitask string mode (generating)
+        # --------------------------------------
+        # Training Loop
+        # --------------------------------------
+        # 2) minitask string mode (generating)
         if test:
             # 1) txt file mode (loading)
             phase_name = os.path.splitext(phase)[0]
@@ -613,22 +604,10 @@ def curriculum_learning_transitions(cfg: DictConfig):
 
     # 1. Accumulate collected data
         data_dict = dict(task_npz)
-        current_length = len(data_dict.get('a', [])) # Check how many transitions were collected
-
-        # --- Sampling/Truncation Logic ---
-        if current_length > MAX_TRANSITIONS_PER_MINITASK:
-            # Randomly sample the required number of transitions
-            indices = np.random.choice(current_length, size=MAX_TRANSITIONS_PER_MINITASK, replace=False)
-        else:
-            # Use all collected data if fewer than the maximum (important for rare events)
-            indices = np.arange(current_length)
-
-        # Apply indices to all keys and accumulate
         for k in combined_data.keys():
-            if k in data_dict and len(data_dict[k]) > 0:
-                # Append the sampled/truncated NumPy array to the list for this key
-                combined_data[k].append(data_dict[k][indices])
-
+            if k in data_dict:
+                # Append the NumPy array from the current phase to the list for this key
+                combined_data[k].append(data_dict[k])
         phases_collected += 1
         
         # 2. Check if training should be triggered
@@ -673,16 +652,18 @@ def curriculum_learning_transitions(cfg: DictConfig):
                 fisher_buffer_elements_ratio=fisher_buffer_elements_ratio
             )
 
+            
+
             # --------------------------------------
             # VALIDATION (unified)
             # --------------------------------------
             avg_loss = validate_on_target_task(
                 cfg,
-                fisher_buffer=fisher_buffer,
+                old_params=old_params,
                 data_save_dir=data_save_dir,
                 target_file=target_file,
                 phase_name=log_phase_name, # Use combined name
-                VALID_TIMES=5
+                VALID_TIMES=1
             )
 
             # --------------------------------------

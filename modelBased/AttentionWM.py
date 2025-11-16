@@ -306,18 +306,57 @@ class AttentionWorldModel(pl.LightningModule):
 
     #     return lambda_ewc * loss
 
-    def set_consolidation(self, old_params: dict, fisher: dict):
+    def set_consolidation(self, old_params: dict, fisher: dict, load_weights: bool = True):
         """
-        安全地设置 EWC 的“锚点”：旧参数 & Fisher（都放 CPU，节省显存）
+        设置 EWC 的“锚点”信息（旧参数 + Fisher），并可选地加载旧参数权重到当前模型。
+
+        Args:
+            old_params (dict): 上一阶段保存的模型参数 (state_dict)
+            fisher (dict): Fisher 信息矩阵
+            load_weights (bool): 是否将旧参数直接加载到当前模型
         """
+        # ----------------------------------------------------------
+        # (1) 旧参数部分
+        # ----------------------------------------------------------
         if old_params is not None:
+            # 保存旧参数为 CPU 版本 (float32)
             self.old_params = {k: v.detach().cpu().float() for k, v in old_params.items()}
+
+            if load_weights:
+                # 尝试将旧参数加载进当前模型
+                current_state = self.state_dict()
+                updated_state = {}
+
+                loaded_keys, skipped_keys = [], []
+                for k, v in old_params.items():
+                    if k in current_state and current_state[k].shape == v.shape:
+                        updated_state[k] = v.clone().detach()
+                        loaded_keys.append(k)
+                    else:
+                        skipped_keys.append(k)
+
+                # 执行加载（严格性关闭以防形状不匹配）
+                current_state.update(updated_state)
+                self.load_state_dict(current_state, strict=False)
+
+                print(f"[EWC] Loaded {len(loaded_keys)} parameters from previous task "
+                    f"(skipped {len(skipped_keys)} mismatched keys).")
+            else:
+                print("[EWC] old_params received but model weights not loaded (load_weights=False).")
+
         else:
             self.old_params = None
+            print("[EWC] No old_params provided — starting from scratch.")
+
+        # ----------------------------------------------------------
+        # (2) Fisher 信息矩阵部分
+        # ----------------------------------------------------------
         if fisher is not None:
             self.fisher = {k: v.detach().cpu().float() for k, v in fisher.items()}
+            print(f"[EWC] Fisher matrix loaded with {len(self.fisher)} entries.")
         else:
             self.fisher = None
+            print("[EWC] No Fisher matrix provided — no EWC regularization will be applied.")
 
 
     def ewc_loss(self):

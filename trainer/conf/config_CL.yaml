@@ -34,7 +34,7 @@ env:
   collect:
     env_type: norm # empty means empty only wall in preprocess no info for keys, lava/door/key/wall/norm
     data_type: random # random/ uniform -- data collection   random -- training
-    episodes: 300  # 500 number of episodes to start
+    episodes: 200  # 500 number of episodes to start
     data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
     num_workers: 0 # number of workers to use for data collection
@@ -53,9 +53,9 @@ attention_model:
   model_type: Attention       # Attention, Embedding, MLP
   grid_shape: [3, 9, 10]  # Channel, Row, Col  # Row, Col 暂时不用，所以设为0就ok 20250213
   attention_mask_size: 3
-  batch_size: 128  # test 64/128/256
-  n_cpu: 0
-  embed_dim: 256  # 128 64/128/256
+  batch_size: 256  # test 64/128/256
+  n_cpu: 8
+  embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
   n_epochs: 20 # 25
@@ -70,9 +70,9 @@ attention_model:
   fisher_buffer_size: 500000
   current_sample_ratio: 0.5
   fisher_buffer_elements_ratio: 0.9 # proportion of key/door/lava samples in current fisher buffer sampling
-  fisher_beta: 0.4
+  fisher_beta: 0.5
   keep_cell_loss: false  # whether or not to keep cell loss
-  n_phases_to_collect: 5  # how many phases to accumulate before training
+  n_phases_to_collect: 3  # how many phases to accumulate before training
 
 
   # freeze weights
@@ -91,7 +91,7 @@ attention_model:
   lambda_ema: 0.05        # 让 λ 更新更平滑     
   fisher_samples: 1500     # 让 Fisher 稍微模糊一些，留出学习空间              
   drift_cooldown: 100
-  continue_learning: True
+  continue_learning: true
 
   # 4. PPO model for final task
 PPO:
