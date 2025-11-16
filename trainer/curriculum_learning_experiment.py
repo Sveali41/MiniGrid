@@ -666,6 +666,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
                 VALID_TIMES=1
             )
 
+
             # --------------------------------------
             # Save CSV (unified)
             # --------------------------------------
@@ -685,11 +686,18 @@ def curriculum_learning_transitions(cfg: DictConfig):
         else:
             # Continue collecting data if N phases haven't been reached
             print(f"Current accumulation: {phases_collected}/{N_PHASES_TO_COLLECT}. Continuing collection...")
+    
+    # validate on the historical minitasks checking for forgetting (optional)
+    print("\n===== Final Forgetting Check on Historical Minitasks =====")
+    for step in range(len(phase_files)):
+        minitask_filename = f"minitask_{step}_test_{explore_type}.npz"
+        cfg.attention_model.freeze_weight = True
+        cfg.attention_model.data_dir = os.path.join(data_save_dir, minitask_filename)
+        val_result, model = AttentionWM_training.train_api(cfg, old_params, None)
+        loss_val = float(val_result[0]['avg_val_loss_wm'])
+        print(f"[Forgetting Check] Minitask {step} Loss: {loss_val:.5f}")
 
 
-
-
-            
 
 if __name__ == "__main__":
     # collect_data_for_txt()

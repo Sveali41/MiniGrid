@@ -58,7 +58,7 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 20 # 25
+  n_epochs: 2 # 25
   lr: 5e-4 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
@@ -72,7 +72,7 @@ attention_model:
   fisher_buffer_elements_ratio: 0.9 # proportion of key/door/lava samples in current fisher buffer sampling
   fisher_beta: 0.5
   keep_cell_loss: false  # whether or not to keep cell loss
-  n_phases_to_collect: 3  # how many phases to accumulate before training
+  n_phases_to_collect: 10  # how many phases to accumulate before training
 
 
   # freeze weights
