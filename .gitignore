@@ -21,4 +21,4 @@ lightning_logs
 
 # ignore trainer files
 trainer/logs
-trainer/data
+trainer/data/temp/
