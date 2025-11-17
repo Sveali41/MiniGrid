@@ -34,7 +34,7 @@ def collect_data(cfg: DictConfig):
         print(f"Step {step+1} of {step_len}...")
         # env = support.wrap_env(support.generate_env(model))
         file_path = os.path.join(file_dir, env_text_file_name[step])
-        env = support.wrap_env_from_text(file_path)
+        env = support.wrap_env_from_text(file_path, max_steps=10000)
         file_name = os.path.splitext(env_text_file_name[step])[0]  # 'env1_move'
         data_save_dir = '/home/siyao/project/rlPractice/MiniGrid/trainer/data'
         cfg.env.collect.data_save_path = os.path.join(data_save_dir, f'{file_name}_test.npz')

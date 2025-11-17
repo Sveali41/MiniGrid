@@ -89,7 +89,7 @@ def run(cfg: DictConfig, old_params=None, fisher=None, layout=None, replay_data=
     # Trainer（使用新写法 + 梯度裁剪）
     # ===========
     trainer = pl.Trainer(
-        precision=16,
+        precision=32,
         logger=wandb_logger if use_wandb else None,
         max_epochs=cfg.attention_model.n_epochs,
         accelerator="gpu",

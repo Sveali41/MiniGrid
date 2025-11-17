@@ -99,7 +99,7 @@ class Support:
         else:
             file_path = os.path.join(file_dir, env_database)
             env_layout = self.load_text_map(file_path)
-            env = self.wrap_env_from_text(file_path)
+            env = self.wrap_env_from_text(file_path, max_steps=10000)
         return env, env_layout
 
     def collect_data_from_env(self, env, wandb_run, validate, save_img, log_name, max_steps):
@@ -183,7 +183,7 @@ class Support:
         # manual_control.start()  # Start the manual control interface
         return env
     
-    def wrap_env_from_text(self, file_path):
+    def wrap_env_from_text(self, file_path, max_steps):
         if self.cfg.env.visualize:
             render_mode = "human"
         else:
@@ -191,7 +191,7 @@ class Support:
         env = FullyObsWrapper(CustomMiniGridEnv(
             txt_file_path=file_path,
             custom_mission="Navigate to the start position.",
-            max_steps=4000,
+            max_steps=max_steps,
             render_mode=render_mode
         ))
         return env

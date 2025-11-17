@@ -525,6 +525,11 @@ def extract_unique_patches(layout_str: str, patch_size: int):
             # Extract the patch as a (patch_size x patch_size) slice of the grid
             patch = grid[i - r : i + r + 1, j - r : j + r + 1]
 
+            # --- NEW: Check center cell is walkable ---
+            center = patch[r, r]
+            if center != 'E':       # only keep patches centered on empty floor
+                continue
+
             # Convert the patch into a string representation
             # Each row becomes a line in the final string
             patch_str = "\n".join("".join(row) for row in patch)
@@ -614,7 +619,7 @@ def combine_patches_1x2(patches):
 def generate_minitasks_until_covered(
     all_patches, 
     patch_size, 
-    patches_per_minitask=4
+    patches_per_minitask
 ):
     """
     Generate minitasks until all unique target patches are covered.
@@ -629,6 +634,34 @@ def generate_minitasks_until_covered(
     iteration = 0
 
     all_set = set(all_patches)
+
+    if patches_per_minitask == 1:
+        while not all_set.issubset(covered):
+            iteration += 1
+
+            remaining = list(all_set - covered)
+
+            # pick exactly 1 patch
+            selected = [random.choice(remaining)]
+            mt_layout = selected[0]                   # use single patch directly
+            mt_layout = add_outer_wall(mt_layout)     # add padding wall
+
+            minitasks.append(mt_layout)
+
+            # update coverage
+            covered.add(selected[0])
+            # print(f"[{iteration}] Accepted → covered "
+            #     f"{len(covered)}/{len(all_patches)}")
+
+        # After covering all patches: convert to combined maps
+        minitask_set = []
+        for layout_map in minitasks:
+            color_map = generate_color_map(layout_map)
+            combined_map = combine_maps(layout_map, color_map, None)
+            minitask_set.append(combined_map)
+
+        # print("\nAll patches covered!")
+        return minitask_set
 
     # -------------- correct condition --------------
     while not all_set.issubset(covered):
@@ -675,8 +708,8 @@ def generate_minitasks_until_covered(
         # Update covered
         covered.update(mt_patches)
 
-        print(f"[{iteration}] Accepted → covered "
-              f"{len(covered)}/{len(all_patches)}")
+        # print(f"[{iteration}] Accepted → covered "
+        #       f"{len(covered)}/{len(all_patches)}")
 
 
     # Final safety check
@@ -690,7 +723,6 @@ def generate_minitasks_until_covered(
         combined_map = combine_maps(layout_map, color_map, None)
         minitask_set.append(combined_map)
 
-    print("\nAll patches covered!")
     return minitask_set
 
 

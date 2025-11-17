@@ -59,38 +59,84 @@ def count_data_in_dataset(file_name):
         print(f"[Error] Failed to read {file_name}: {e}")
         return None
 
-def split_target_task_into_minitasks(target_task_file: str, patch_size: int):
+def split_targets_into_minitasks(
+    target_task_input, patch_size=3, patches_per_minitask=4, trials=200
+):
     """
-    Splits the target task into mini tasks based on unique local patterns.
+    Extract patches from one or multiple target tasks, remove duplicates,
+    and generate minitasks multiple times to return the smallest minitask set.
 
     Args:
-        target_task_file (str): Path to the target task text file.
-        patch_size (int): Size of the local patches to extract.
+        target_task_input: str or List[str]
+        patch_size: int
+        patches_per_minitask: int
+        trials: how many times to run the generation (default=10)
 
     Returns:
-        List[str]: List of unique mini task layouts as strings.
+        List[str]: the smallest minitask set found across trials
     """
 
-    env = CustomMiniGridEnv(
-        txt_file_path=TRAINER_PATH / 'level' / target_task_file,
-        custom_mission="Find the key and open the door.",
-        max_steps=5000,
-        render_mode= None
-    )
+    # --------- Normalize input to list ---------
+    if isinstance(target_task_input, str):
+        target_files = [target_task_input]
+    elif isinstance(target_task_input, (list, tuple)):
+        target_files = list(target_task_input)
+    else:
+        raise ValueError("target_task_input must be a str or list[str]")
 
-    # ----- Extract patches from this env -----
-    env.reset() 
-    layout_str = env.layout_str 
-    patches = extract_unique_patches(layout_str, patch_size)
-    minitasks_set = generate_minitasks_until_covered(patches, patch_size, patches_per_minitask=4)
-    print(len(minitasks_set), "unique minitasks generated from", target_task_file)
-    return minitasks_set
+    # print(f"[Patch Collect] Processing {len(target_files)} target tasks...")
+
+    # --------- Collect patches from all targets ---------
+    all_patches = set()
+
+    for file in target_files:
+        env = CustomMiniGridEnv(
+            txt_file_path=TRAINER_PATH / "level" / file,
+            custom_mission="Find the key and open the door.",
+            max_steps=5000,
+            render_mode=None
+        )
+        env.reset()
+        layout_str = env.layout_str
+        patches = extract_unique_patches(layout_str, patch_size)
+        all_patches.update(patches)
+
+    # print(f"[Patch Collect] Total unique patches across all targets = {len(all_patches)}")
+
+    all_patches_list = list(all_patches)
+
+    # ======================================================
+    # Run multiple times and pick the smallest minitask set
+    # ======================================================
+    best_minitasks = None
+    best_size = float("inf")
+
+    # print(f"[Minitasks] Running {trials} trials to find minimal cover...")
+
+    for t in range(trials):
+        minitasks = generate_minitasks_until_covered(
+            all_patches_list,
+            patch_size,
+            patches_per_minitask=patches_per_minitask
+        )
+
+        size = len(minitasks)
+        # print(f"  Trial {t+1}/{trials}: {size} minitasks")
+
+        if size < best_size:
+            best_size = size
+            best_minitasks = minitasks
+
+    print(f"[Minitasks] Best result: {best_size} minitasks (out of {trials} trials)")
+    return best_minitasks
+
 
 def collect_data_general(
     cfg,
     env_source,
     save_name: str,
     max_steps: int = 10000,
+    maximum_dataset_size: int = None,
 ):
     """
     General environment data-collection function.
@@ -101,7 +147,7 @@ def collect_data_general(
     
     save_name: file prefix to save data, e.g. "lava_minitask"
     """
-
+    cfg.env.collect.maximum_dataset_size = maximum_dataset_size
     support = Support.Support(cfg)
 
     # -----------------------------
@@ -109,7 +155,7 @@ def collect_data_general(
     # -----------------------------
     if isinstance(env_source, (str, os.PathLike)) and str(env_source).endswith(".txt"):
         # From text file
-        env = support.wrap_env_from_text(env_source)
+        env = support.wrap_env_from_text(env_source, max_steps=max_steps)
 
     elif isinstance(env_source, tuple) and len(env_source) == 2:
         # From minitask strings
@@ -119,7 +165,8 @@ def collect_data_general(
             layout_str=layout_str,
             color_str=color_str,
             custom_mission="Learn minitask",
-            render_mode=None
+            render_mode=None,
+            max_steps=max_steps,
         ))
     else:
         raise ValueError("env_source must be a .txt filepath or (layout_str, color_str) tuple")
@@ -149,7 +196,7 @@ def collect_data_general(
         validate=False,
         save_img=False,
         log_name=f"collect_{save_name}",
-        max_steps=max_steps
+        max_steps=None,  # already set in env
     )
 
     print("Data collection complete!")
@@ -167,6 +214,13 @@ def create_data_subsets(dataset_npz, interval_size):
     info_all = dataset_npz["f"] if "f" in dataset_npz else None
 
     total = len(obs_all)
+    if interval_size is None:
+        return [{
+            "a": obs_all,
+            "b": next_all,
+            "c": act_all,
+            "f": info_all,
+        }]
 
     # ---- Shuffle ----
     indices = np.arange(total)
@@ -274,8 +328,6 @@ def validate_on_target_task(cfg, old_params, data_save_dir, target_file, phase_n
     cfg.attention_model.keep_cell_loss = False
 
     avg_loss = float(np.mean(losses))
-    print(f"[Validation] {phase_name} → Avg Target Loss = {avg_loss:.5f}")
-
     return avg_loss
 
 def save_validation_csv(csv_path, seed, mode, phase_name, transitions, loss):
@@ -316,7 +368,7 @@ def collect_data_for_txt(cfg: DictConfig):
         cfg,
         env_source=TRAINER_PATH / 'level' / env_text_file_name,
         save_name=file_name,
-        max_steps=10000
+        max_steps=1000
     )
 
 @hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_CL")
@@ -377,7 +429,7 @@ def test_1(cfg: DictConfig):
     csv_path = os.path.join(TRAINER_PATH, 'logs', 'target_eval_log.csv')
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
 
-    fisher_buffer = FisherReplayBuffer(max_size=500000)
+    fisher_buffer = FisherReplayBuffer(max_size=cfg.attention_model.fisher_buffer_size)
     old_params, fisher = None, None
 
     env_text_file_name = [
@@ -538,8 +590,8 @@ def curriculum_learning_transitions(cfg: DictConfig):
     set_seed(seed)
 
     test = False # True: using random data directly collect from target task -- baseline / False: using minitask strings
-    mode = "Baseline" # 'CL' / 'Baseline'
-    interval_size = 10000 # number of transitions per training phase
+    interval_size = None # number of transitions per training phase # not split when None
+    training_data_intotal = 100000 # total number of transitions for training
     explore_type = cfg.env.collect.data_type # uniform / random
     data_save_dir = TRAINER_PATH / "data"
 
@@ -547,9 +599,16 @@ def curriculum_learning_transitions(cfg: DictConfig):
     csv_path = log_dir / "target_eval_log_compare_patches_minitask.csv"
     os.makedirs(log_dir, exist_ok=True)
 
-    target_file = "3obstacles_target_task_test_uniform.npz"
+    target_task_name = ['3obstacles_target_task.txt', '3obstacles_target_task1.txt','3obstacles_target_task2.txt', 
+                        '3obstacles_target_task3.txt', '3obstacles_target_task4.txt', 
+                        # '3obstacles_target_task5.txt',
+                        # '3obstacles_target_task6.txt', '3obstacles_target_task7.txt'
+                       ]
+   
 
-    fisher_buffer = FisherReplayBuffer(max_size=50000)
+    target_file = [os.path.splitext(i)[0] + f"_test_uniform.npz" for i in target_task_name]
+
+    fisher_buffer = FisherReplayBuffer(max_size=cfg.attention_model.fisher_buffer_size)
     current_sample_ratio = cfg.attention_model.current_sample_ratio
     fisher_buffer_elements_ratio = cfg.attention_model.fisher_buffer_elements_ratio
     old_params, fisher = None, None
@@ -563,13 +622,15 @@ def curriculum_learning_transitions(cfg: DictConfig):
     # Standard keys for transitions: 'obs', 'act', 'obs_next', 'reward', 'terminal', 'info'
     combined_data = {k: [] for k in ['a', 'b', 'c', 'd', 'e', 'f']}
     phases_collected = 0
-
     if test:
-        phase_files = ['3obstacles_target_task.txt'] * 35
+        phase_files = ['3obstacles_target_task.txt', '3obstacles_target_task1.txt','3obstacles_target_task2.txt', 
+                       '3obstacles_target_task3.txt', '3obstacles_target_task4.txt', 
+                       # '3obstacles_target_task5.txt',
+                          # '3obstacles_target_task6.txt', '3obstacles_target_task7.txt'
+                       ] 
         mode = "Baseline" # 'CL' / 'Baseline'
     else:
-        target_task_name = '3obstacles_target_task.txt'
-        phase_files = split_target_task_into_minitasks(target_task_name, patch_size=3)
+        phase_files = split_targets_into_minitasks(target_task_name, patch_size=3, patches_per_minitask=4, trials=1)
         mode = "CL" # 'CL' / 'Baseline'
 
     for idx, phase in enumerate(phase_files):
@@ -584,19 +645,30 @@ def curriculum_learning_transitions(cfg: DictConfig):
         # --------------------------------------
         # 2) minitask string mode (generating)
         if test:
+            maximum_dataset_size = training_data_intotal // len(phase_files) 
+            print(f"maximum_dataset_size per phase: {maximum_dataset_size}")
             # 1) txt file mode (loading)
             phase_name = os.path.splitext(phase)[0]
-            dataset_path = os.path.join(data_save_dir, f"{phase_name}_test_{explore_type}.npz")
+            dataset_path = collect_data_general(
+                cfg,
+                env_source=TRAINER_PATH / "level" / phase,
+                save_name=phase_name,
+                max_steps=10000,
+                maximum_dataset_size=maximum_dataset_size
+            )
             task_npz = np.load(dataset_path, allow_pickle=True)
+
         else:
             layout_str, color_str = phase.split("\n\n")
             save_name = f"minitask_{idx}"
-
+            maximum_dataset_size = training_data_intotal // len(phase_files) 
+            print(f"maximum_dataset_size per phase: {maximum_dataset_size}")
             dataset_path = collect_data_general(
                 cfg,
                 env_source=(layout_str, color_str),
                 save_name=save_name,
-                max_steps=500
+                max_steps=80,
+                maximum_dataset_size=maximum_dataset_size
             )
             phase_name = save_name
             task_npz = np.load(dataset_path, allow_pickle=True)
@@ -627,7 +699,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
                     final_npz[k] = np.concatenate(arrays, axis=0)
             
             # Determine logging info (transitions and phase name)
-            transitions = len(final_npz.get('obs', []))
+            transitions = maximum_dataset_size 
             
             # Use a descriptive name for logging the combined phase
             log_phase_name = f"Combined_P{idx - phases_collected + 2}_to_P{idx+1}" 
@@ -657,15 +729,19 @@ def curriculum_learning_transitions(cfg: DictConfig):
             # --------------------------------------
             # VALIDATION (unified)
             # --------------------------------------
-            avg_loss = validate_on_target_task(
-                cfg,
-                old_params=old_params,
-                data_save_dir=data_save_dir,
-                target_file=target_file,
-                phase_name=log_phase_name, # Use combined name
-                VALID_TIMES=1
-            )
-
+            validate_loss_on_target_task = []
+            for i in target_file:
+                avg_loss = validate_on_target_task(
+                    cfg,
+                    old_params=old_params,
+                    data_save_dir=data_save_dir,
+                    target_file=i,
+                    phase_name=log_phase_name, # Use combined name
+                    VALID_TIMES=1
+                )
+                validate_loss_on_target_task.append(avg_loss)
+            avg_loss = float(np.mean(validate_loss_on_target_task))
+            print(f"[Unified Validation] {log_phase_name} → Overall Avg Target Loss = {avg_loss:.5f}")
 
             # --------------------------------------
             # Save CSV (unified)
@@ -698,6 +774,22 @@ def curriculum_learning_transitions(cfg: DictConfig):
         print(f"[Forgetting Check] Minitask {step} Loss: {loss_val:.5f}")
 
 
+@hydra.main(version_base=None, config_path=str(TRAINER_PATH / "conf"), config_name="config_CL")
+def train_on_target_task_only(cfg: DictConfig):
+    """
+    Train Attention WM only on the target task dataset.
+    """
+
+    seed = getattr(cfg, "seed", 0)
+    set_seed(seed)
+
+    data_save_dir = TRAINER_PATH / "data"
+    target_file = "only_lava_minitask_test_random.npz"
+
+    cfg.attention_model.freeze_weight = False
+    cfg.attention_model.data_dir = os.path.join(data_save_dir, target_file)
+
+    old_params, fisher = AttentionWM_training.train_api(cfg, None, None)
 
 if __name__ == "__main__":
     # collect_data_for_txt()
@@ -705,4 +797,4 @@ if __name__ == "__main__":
     # test_1()
     # # visualize_CL_dataset()
     curriculum_learning_transitions()
-    # split_target_task_into_minitasks('3obstacles_target_task.txt', patch_size=3)
+    # train_on_target_task_only()

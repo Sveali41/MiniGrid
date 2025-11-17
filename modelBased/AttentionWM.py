@@ -71,7 +71,8 @@ class AttentionWorldModel(pl.LightningModule):
     def save_old_params(self):
         """Save current model parameters for EWC, moved to model's device."""
         device = next(self.parameters()).device
-        old_params = {n: p.clone().detach().to(device) for n, p in self.named_parameters() if p.requires_grad}
+        old_params = {k: v.clone().detach().cpu() 
+              for k, v in self.state_dict().items()}
         return old_params
     
     # def load_old_params(self, old_params):
@@ -459,15 +460,15 @@ class AttentionWorldModel(pl.LightningModule):
 
         # 3. 初始权重：默认 1，变化位置 ×5
         w = torch.ones_like(base)
-        w[change_mask.expand_as(base)] = 5.0
+        w[change_mask.expand_as(base)] *= 5.0
 
         # 4. 如果提供了 obs_masked，额外对门/钥匙区域加权（×3）
         if obs_masked is not None:
             combined_mask = obs_masked & change_mask.squeeze(1)  # 同时必须有变化
 
             # 扩展为所有通道
-            keydoor_mask_full = combined_mask.unsqueeze(1).expand_as(base)  # (B,C,H,W)
-            w[keydoor_mask_full] += 5.0  # 基于已有权重再叠加 +5 → 总共 ×10
+            elements_mask_full = combined_mask.unsqueeze(1).expand_as(base)  # (B,C,H,W)
+            w[elements_mask_full] *= 2.0  # 基于已有权重再叠加 +5 → 总共 ×10
 
         # 5. 最终加权 loss
         loss = (base * w).mean()
@@ -560,10 +561,10 @@ class AttentionWorldModel(pl.LightningModule):
                 f"ewc_term: {ewc_term.item():.6f}, "
                 f"total: {loss_total.item():.6f}")
 
-        # —— 慢速外环（有旧参数时才调；函数内部有 cooldown）—— #
-        if self.old_params is not None:
-            avg_drift = self.compute_avg_param_drift()
-            self.update_lambda_ewc(avg_drift)
+        # # —— 慢速外环（有旧参数时才调；函数内部有 cooldown）—— #
+        # if self.old_params is not None:
+        #     avg_drift = self.compute_avg_param_drift()
+        #     self.update_lambda_ewc(avg_drift)
 
         return loss_total
 

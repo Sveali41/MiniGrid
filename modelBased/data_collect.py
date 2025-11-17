@@ -288,6 +288,7 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
     has_carried_key_this_episode = False  # 新增：本轮是否已经捡过钥匙
     step_in_episode = 0  # 当前 episode 中的 step 计数器
     task_name = cfg.env.collect.env_type
+    maximum_dataset_size = cfg.env.collect.maximum_dataset_size
 
 
     if save_img and wandb_run is not None:
@@ -340,6 +341,8 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
 
             # Step in the environment
             obs_next, reward, done, trunc, info = env.step(act)
+
+
             if env.env.carrying and env.env.carrying.type == 'key':
                 info['carrying_key'] = True
             else:
@@ -377,6 +380,13 @@ def run_env(env, cfg: DictConfig, wandb_run, log_name, policy=None, rmax_explora
             rew_list.append([reward])
             done_list.append([done])
             info_list.append([info])
+
+            # --- early stop if dataset size reached ---
+            if maximum_dataset_size is not None and len(obs_list) >= maximum_dataset_size:
+                print(f"[STOP] Reached maximum dataset size: {maximum_dataset_size}")
+                break
+
+
 
             # Update visit count and RMax exploration
             state_action_key = (tuple(obs['image'].flatten()), act)
@@ -897,31 +907,57 @@ def data_collect_api_multiprocess(cfg: DictConfig, env, wandb_run, save_img=Fals
 def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_steps=10000):
     hparam = copy.deepcopy(cfg)
     original_episodes = hparam.env.collect.episodes
-    obs = env.reset()[0]
-    obs_layout = obs['image']
-    # if np.any(obs_layout[:, :, 0] == 5) or np.any(obs_layout[:, :, 0] == 4):
-    #     key_door = True
-    # else:
-    #     key_door = False
-    # 初始化数据缓存
+
+    # === DATA BUFFERS ===
     obs_all, obsn_all, act_all, rew_all, done_all, info_all = [], [], [], [], [], []
+
+    # ------------------------------------------------------
+    # CASE 1: Single-run mode (NO ITERATION)
+    # ------------------------------------------------------
+    if max_steps is None:
+        print(f"[Single-run mode] Collecting {hparam.env.collect.episodes} episodes...")
+
+        if cfg.env.collect.data_type == 'uniform':
+            obs, obs_next, act, rew, done, info = uniform_collect_data_postprocess(
+                env, hparam, wandb_run, log_name,
+                policy=None, rmax_exploration=None, save_img=save_img
+            )
+        else:
+            obs, obs_next, act, rew, done, info = run_env(
+                env, hparam, wandb_run, log_name, save_img=save_img
+            )
+
+        # store results
+        obs_all.append(obs)
+        obsn_all.append(obs_next)
+        act_all.append(act)
+        rew_all.append(rew)
+        done_all.append(done)
+        info_all.append(info)
+
+        print("[Single-run] Finished collecting. Saving dataset...")
+            # jump to the saving section
+        return _finalize_and_save(cfg, env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)
+    
+
+    # ------------------------------------------------------
+    # CASE 2: Multi-round mode (original behavior)
+    # ------------------------------------------------------
     total_steps = 0
     round_idx = 0
 
     while total_steps < max_steps:
         print(f"Round {round_idx+1}, collecting {hparam.env.collect.episodes} episodes...")
+
         if cfg.env.collect.data_type == 'uniform':
-            obs, obs_next, act, rew, done, info = uniform_collect_data_postprocess(env, hparam, wandb_run, log_name, policy=None, rmax_exploration=None, save_img=False)
+            obs, obs_next, act, rew, done, info = uniform_collect_data_postprocess(
+                env, hparam, wandb_run, log_name,
+                policy=None, rmax_exploration=None, save_img=False
+            )
         else:
-            obs, obs_next, act, rew, done, info = run_env(env, hparam, wandb_run, log_name, save_img=save_img)
-        # if key_door:
-        #     print("Applying key-door augmentation...")
-        #     actions_to_oversample = [env.unwrapped.actions.pickup, env.unwrapped.actions.toggle]
-        #     obs, obs_next, act, rew, done, info = augment_interactions_keydoor_only(
-        #         obs, obs_next, act, rew, done, info,
-        #         actions_to_oversample,
-        #         N=20
-        #     )
+            obs, obs_next, act, rew, done, info = run_env(
+                env, hparam, wandb_run, log_name, save_img=save_img
+            )
 
         obs_all.append(obs)
         obsn_all.append(obs_next)
@@ -935,12 +971,20 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
 
         if total_steps < max_steps:
             hparam.env.collect.episodes = max(1, original_episodes // 3)
-            print(f"Not enough data. Increasing episode count to {hparam.env.collect.episodes}.")
 
         round_idx += 1
         save_img = False
 
-    # 合并最终数据
+    return _finalize_and_save(cfg, env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)
+
+
+
+# ----------------------------------------------------------
+# Helper: final save + visualization
+# ----------------------------------------------------------
+def _finalize_and_save(cfg, env, obs_all, obsn_all, act_all, rew_all, done_all, info_all):
+
+    # merge
     obs_all = np.concatenate(obs_all, axis=0)
     obsn_all = np.concatenate(obsn_all, axis=0)
     act_all = np.concatenate(act_all, axis=0)
@@ -948,33 +992,16 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
     done_all = np.concatenate(done_all, axis=0)
     info_all = np.concatenate(info_all, axis=0)
 
-    # if cfg.env.collect.data_type == 'random':
-    #     obs_all, obsn_all, act_all, rew_all, done_all, info_all = downsample_moves_only(
-    #     env=env,
-    #     obs=obs_all,
-    #     obs_next=obsn_all,
-    #     act=act_all,
-    #     rew=rew_all,
-    #     done=done_all,
-    #     info=info_all,
-    #     move_keep_ratio=0.4,    # 调 0.2~0.6
-    #     require_changed=True,    # 仅把真正改变状态的交互当 key/door
-    #     min_keep_moves=50,
-    #     shuffle=True
-    #     )
-
     print(f"Final data shape: {obs_all.shape}")
+
     save_experiments(cfg.env, obs_all, obsn_all, act_all, rew_all, done_all, info_all)
 
-    # === Visualization ===
+    # visualization
     data_path = cfg.env.collect.data_save_path
-    save_path = cfg.env.collect.visualize_save_path
     if cfg.env.collect.save_coverage_visualize and os.path.exists(data_path):
-        print(f"Visualizing coverage from dataset: {data_path}")
-        data = np.load(data_path, allow_pickle=True)
-        # --- use custom filename from config if available ---
         filename = getattr(cfg.env.collect, "visualize_filename", None)
-        save_path = os.path.join(save_path, filename)
+        save_path = os.path.join(cfg.env.collect.visualize_save_path, filename)
+        data = np.load(data_path, allow_pickle=True)
 
         visualize_agent_coverage(
             data,
@@ -983,6 +1010,7 @@ def data_collect_api(cfg: DictConfig, env, wandb_run, save_img, log_name, max_st
         )
 
     env.close()
+
 
 
 

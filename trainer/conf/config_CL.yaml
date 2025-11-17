@@ -34,7 +34,8 @@ env:
   collect:
     env_type: norm # empty means empty only wall in preprocess no info for keys, lava/door/key/wall/norm
     data_type: random # random/ uniform -- data collection   random -- training
-    episodes: 200  # 500 number of episodes to start
+    episodes: 300  # 500 number of episodes to start
+    maximum_dataset_size: None # maximum number of samples to collect, if no then None
     data_folder: ${oc.env:TRAINER_PATH}/data/ # folder where to save the rollouts
     data_save_path: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # folder where to save the rollouts
     num_workers: 0 # number of workers to use for data collection
@@ -58,8 +59,8 @@ attention_model:
   embed_dim: 128  # 128 64/128/256
   num_heads: 1   # 1 if the embed_dim is 64, num_heads should better be 1
   data_dir: ${oc.env:TRAINER_PATH}/data/gridworld_trainer.npz # ${oc.env:TRAINER_PATH}/data/gridworld_episode.npz 
-  n_epochs: 2 # 25
-  lr: 5e-4 # 1e-4 
+  n_epochs: 20 # 25
+  lr: 6e-4 # 1e-4 
   wd: 1e-5
   obs_norm_values: [10, 5, 3] # object, color, state --> agent_state: 1-down 2-left 3-up 0-right 
   action_norm_values: 6 # 0-left 1-right 2-forward 3-pickup 4-drop 5-toggle 6-done
@@ -68,9 +69,9 @@ attention_model:
   valid_values_state: [0, 1, 2, 3]
   use_wandb: False
   fisher_buffer_size: 500000
-  current_sample_ratio: 0.5
-  fisher_buffer_elements_ratio: 0.9 # proportion of key/door/lava samples in current fisher buffer sampling
-  fisher_beta: 0.5
+  current_sample_ratio: 0.4
+  fisher_buffer_elements_ratio: 0.7 # proportion of key/door/lava samples in current fisher buffer sampling
+  fisher_beta: 0.4
   keep_cell_loss: false  # whether or not to keep cell loss
   n_phases_to_collect: 10  # how many phases to accumulate before training
 
@@ -86,7 +87,7 @@ attention_model:
   save_path: ${oc.env:TRAINER_PATH}/visulization
   direction_map: {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
   action_map: {0: 'left', 1: 'right', 2: 'forward', 3: 'pickup', 4: 'drop', 5: 'toggle', 6: 'done'}
-  lambda_ewc: 500
+  lambda_ewc: 80
   ewc_ratio: 0.05         # EWC 约占主损失的 5%
   lambda_ema: 0.05        # 让 λ 更新更平滑     
   fisher_samples: 1500     # 让 Fisher 稍微模糊一些，留出学习空间              
