@@ -623,11 +623,7 @@ def curriculum_learning_transitions(cfg: DictConfig):
     combined_data = {k: [] for k in ['a', 'b', 'c', 'd', 'e', 'f']}
     phases_collected = 0
     if test:
-        phase_files = ['3obstacles_target_task.txt', '3obstacles_target_task1.txt','3obstacles_target_task2.txt', 
-                       '3obstacles_target_task3.txt', '3obstacles_target_task4.txt', 
-                       # '3obstacles_target_task5.txt',
-                          # '3obstacles_target_task6.txt', '3obstacles_target_task7.txt'
-                       ] 
+        phase_files = target_task_name
         mode = "Baseline" # 'CL' / 'Baseline'
     else:
         phase_files = split_targets_into_minitasks(target_task_name, patch_size=3, patches_per_minitask=4, trials=1)
