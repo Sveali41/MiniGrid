@@ -1460,6 +1460,9 @@ def run_online_crafter_mpc(cfg: DictConfig) -> list[dict]:
         model.crafter_inventory_event_residual_change_bias = change_bias
     model.to(DEVICE).eval()
     planner = CrafterWorldModelMPC(model, spec, mpc_cfg)
+    stop_on_prediction_mismatch = bool(
+        getattr(mpc_cfg, "crafter_stop_on_prediction_mismatch", True)
+    )
     episodes, max_steps = int(mpc_cfg.episodes), int(cfg.PPO.max_ep_len)
     if episodes < 1 or max_steps < 1:
         raise ValueError("MPC episodes and max_ep_len must be positive")
@@ -1562,7 +1565,7 @@ def run_online_crafter_mpc(cfg: DictConfig) -> list[dict]:
                         reason = "terminated"
                     elif truncated:
                         reason = "truncated"
-                    elif not (pose_match and inv_match):
+                    elif stop_on_prediction_mismatch and not (pose_match and inv_match):
                         reason = "prediction_mismatch"
                         early_replans += 1
                     elif index == len(actions) - 1:

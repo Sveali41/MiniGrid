@@ -495,6 +495,7 @@ PPO:
     crafter_require_three_wood_for_first_table: true
     # After stone/iron pickaxe, guide missing materials and resource interactions.
     crafter_late_stage_guidance: true
+    crafter_stop_on_prediction_mismatch: true
     episodes: 10
     print_every_steps: 1
     # MPC can evaluate the current DR model without changing PPO's WM source.
