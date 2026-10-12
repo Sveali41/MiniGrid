@@ -2652,7 +2652,7 @@ class AttentionWorldModel(pl.LightningModule):
 
     @torch.no_grad()
     def calc_minigrid_probe_metrics(self, trajectory_data, include_spatial=False):
-        """Evaluate held-out MiniGrid loss and optional global spatial error maps."""
+        """Evaluate MiniGrid loss on the supplied transitions and optional global spatial error maps."""
         if self.env_type != "minigrid" or not trajectory_data:
             result = {"changed_focal_loss": 0.0}
             if include_spatial:
@@ -2726,7 +2726,7 @@ class AttentionWorldModel(pl.LightningModule):
 
     @torch.no_grad()
     def calc_crafter_changed_focal_loss(self, trajectory_data):
-        """Changed-only focal loss for one held-out Crafter rollout."""
+        """Changed-only focal loss for one supplied Crafter trajectory."""
         return self.calc_crafter_changed_focal_losses([trajectory_data])[0]
 
     @torch.no_grad()

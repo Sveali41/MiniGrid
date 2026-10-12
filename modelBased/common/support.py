@@ -32,7 +32,10 @@ class Support:
         if self.cfg.attention_model.env_type == 'crafter':
             from domain.crafter import crafter_support
 
-            return crafter_support.interpret_env(env, self.cfg, inventory_vec=inventory_vec)
+            return crafter_support.interpret_env(
+                env, self.cfg, inventory_vec=inventory_vec,
+                preserve_tool_counts=bool(getattr(getattr(self.cfg, "pus", None), "enabled", False)),
+            )
         if self.cfg.attention_model.env_type == 'bipedalwalker':
             active_width = getattr(getattr(self.cfg, "generator_agent", None), "active_width", None)
             return bipedalwalker_support.interpret_env(env, active_width=active_width)

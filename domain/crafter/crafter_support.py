@@ -380,7 +380,7 @@ def _to_nchw(obs: np.ndarray) -> np.ndarray:
 
     raise ValueError(f"Cannot infer channel axis for shape {obs.shape}")
 
-def interpret_env(terrain_map, cfg, inventory_vec=None):
+def interpret_env(terrain_map, cfg, inventory_vec=None, preserve_tool_counts=False):
     import torch
     import numpy as np
     
@@ -449,7 +449,7 @@ def interpret_env(terrain_map, cfg, inventory_vec=None):
         if i < len(inventory_vec):
             val = int(inventory_vec[i])
             # For tools/swords, clamp to 1 if > 0 to maintain game balance
-            if "pickaxe" in item_name or "sword" in item_name:
+            if not preserve_tool_counts and ("pickaxe" in item_name or "sword" in item_name):
                 val = 1 if val > 0 else 0
             # For health/food, if 0, default to 9
             if item_name in ["health", "food"] and val == 0:

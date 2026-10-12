@@ -21,7 +21,7 @@ OUTPUT_NAME = (
     if FOCAL_GAMMA == 1.0
     else f"bipedal_contact_focal_gamma{GAMMA_TAG}_target1_seed{SEED}"
 )
-OUTPUT_ROOT = ROOT / "trainer" / "results" / OUTPUT_NAME
+OUTPUT_ROOT = ROOT / "outputs" / "results" / OUTPUT_NAME
 CONFIG_PATH = WM_ROOT / "modelBased" / "config" / "config.yaml"
 
 for key, value in {
@@ -184,7 +184,7 @@ def main() -> None:
     )
     initial_model = AttentionWorldModel(init_cfg.attention_model)
     gamma1_initial_path = (
-        ROOT / "trainer" / "results"
+        ROOT / "outputs" / "results"
         / f"bipedal_contact_focal_target1_seed{SEED}"
         / "shared_initial_state.pt"
     )
@@ -259,7 +259,7 @@ def write_three_seed_summary() -> None:
             if FOCAL_GAMMA == 1.0
             else f"bipedal_contact_focal_gamma{GAMMA_TAG}_target1_seed{seed}"
         )
-        result_path = ROOT / "trainer" / "results" / seed_name / "results.json"
+        result_path = ROOT / "outputs" / "results" / seed_name / "results.json"
         if not result_path.is_file():
             return
         seed_results[seed] = json.loads(result_path.read_text())
@@ -294,7 +294,7 @@ def write_three_seed_summary() -> None:
         summary["arms"][arm] = arm_summary
 
     summary_path = (
-        ROOT / "trainer" / "results"
+        ROOT / "outputs" / "results"
         / f"bipedal_contact_focal_target1_gamma{GAMMA_TAG}_3seed_summary.json"
     )
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
