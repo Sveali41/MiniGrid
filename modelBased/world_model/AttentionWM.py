@@ -2731,7 +2731,7 @@ class AttentionWorldModel(pl.LightningModule):
 
     @torch.no_grad()
     def calc_crafter_changed_focal_losses(self, trajectories, max_batch_size=256, return_feedback=False, return_components=False):
-        """Score Crafter probes together; optionally return post-probe spatial and item error."""
+        """Score probes; optionally return spatial error and per-item error on true changes."""
         losses = [float("nan")] * len(trajectories)
         components = [dict(layout=float("nan"), inventory=float("nan"),
                            layout_changed_count=0, inventory_changed_count=0)
@@ -2776,10 +2776,13 @@ class AttentionWorldModel(pl.LightningModule):
                         output_mode=self.crafter_inventory_output_mode,
                         value_mode=self.crafter_inventory_value_mode,
                     )
-                    # Measure the actual decoded item outcome, including event residual projection.
-                    item_losses = decoded_inventory[:, SURVIVAL_SLOTS:].ne(
+                    # History measures decoded errors conditional on each item's true change.
+                    item_changed = inv_next.long()[:, SURVIVAL_SLOTS:].ne(
+                        inv.long()[:, SURVIVAL_SLOTS:]
+                    )
+                    item_losses = (decoded_inventory[:, SURVIVAL_SLOTS:].ne(
                         inv_next.long()[:, SURVIVAL_SLOTS:]
-                    ).float()
+                    ) & item_changed).float()
                 offset = 0
                 for index, start, stop in chunks:
                     end = offset + stop - start
@@ -2806,9 +2809,9 @@ class AttentionWorldModel(pl.LightningModule):
                                 np.zeros((self.row, self.col), dtype=np.float64),
                                 np.zeros((self.row, self.col), dtype=np.float64),
                                 np.zeros(12, dtype=np.float64),
-                                0,
+                                np.zeros(12, dtype=np.int64),
                             )
-                        error_sum, coverage_count, item_sum, item_count = feedback_sums[index]
+                        error_sum, coverage_count, item_sum, item_change_count = feedback_sums[index]
                         for sample_index in range(offset, end):
                             agent_y, agent_x = map(int, agent_positions[sample_index])
                             for local_y in range(self.mask_size):
@@ -2819,7 +2822,8 @@ class AttentionWorldModel(pl.LightningModule):
                                         error_sum[global_y, global_x] += float(cell_losses[sample_index, local_y, local_x])
                                         coverage_count[global_y, global_x] += 1
                         item_sum += item_losses[offset:end].sum(dim=0).detach().cpu().numpy()
-                        feedback_sums[index] = (error_sum, coverage_count, item_sum, item_count + end - offset)
+                        item_change_count += item_changed[offset:end].sum(dim=0).detach().cpu().numpy()
+                        feedback_sums[index] = (error_sum, coverage_count, item_sum, item_change_count)
                     offset = end
                 chunks = []
                 chunk_size = 0
@@ -2875,11 +2879,11 @@ class AttentionWorldModel(pl.LightningModule):
                 if sums is None:
                     feedback.append(None)
                     continue
-                error_sum, coverage_count, item_sum, item_count = sums
+                error_sum, coverage_count, item_sum, item_change_count = sums
                 feedback.append({
                     "error_map": np.divide(error_sum, coverage_count, out=np.zeros_like(error_sum), where=coverage_count > 0).astype(np.float32),
                     "coverage_map": (coverage_count > 0).astype(np.float32),
-                    "item_error": (item_sum / max(item_count, 1)).astype(np.float32),
+                    "item_error": np.divide(item_sum, item_change_count, out=np.zeros_like(item_sum), where=item_change_count > 0).astype(np.float32),
                 })
             return (losses, feedback, components) if return_components else (losses, feedback)
         finally:
